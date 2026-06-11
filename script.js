@@ -43,6 +43,7 @@ const SIZES = {
   M:  { label: 'M — Standard',    specs: 'VM-M  · PG-M  · Redis-M  · Rabbit-M' },
   L:  { label: 'L — Performance', specs: 'VM-L  · PG-L  · Redis-L  · Rabbit-L' },
   XL: { label: 'XL — Intensif',   specs: 'VM-XL · PG-XL · Redis-XL · Rabbit-XL' },
+  custom: { label: 'Sur mesure',  specs: 'vCPU, RAM et stockage au choix' },
 };
 
 
@@ -80,8 +81,6 @@ const RESOURCE_DEFS = {
                 desc: 'Conteneurs serverless — 0,10 €/h/vCPU, 0,025 €/Gio/h. Min. 30 €/service/mois.' },
   wiki:       { icon: '📖', label: 'Wiki as a Service',       base: 120,  sized: false,
                 desc: 'Wiki collaboratif managé (application, base de données, stockage inclus).' },
-  storage:    { icon: '🗄️', label: 'Stockage objet (S3)',     base: 0.10, sized: false, qty: 'storageGb',
-                desc: 'Stockage compatible S3, facturé 0,10 €/Go/mois.' },
 };
 
 /* Catalogue de templates (page « Créer… ») */
@@ -89,7 +88,7 @@ const TEMPLATES = [
   {
     id: 'platform-project', enabled: true, type: 'Infrastructure',
     title: 'Provisionnement de projet plateforme',
-    desc: 'Crée un projet complet : Rancher, Harbor, machines virtuelles, bases de données et stockage, avec workflow de validation.',
+    desc: 'Crée un projet complet : Rancher, Harbor, machines virtuelles et bases de données, avec workflow de validation.',
     tags: ['rancher', 'harbor', 'vm', 'postgresql', 'mongodb'],
   },
 
@@ -114,7 +113,7 @@ const PROV_STEPS = [
     needs: r => r.resources.rancher,
     logs: r => [
       ['info', `Connexion à l'API Rancher (cluster ${r.env === 'prod' ? 'prod-01' : 'nonprod-02'})…`],
-      ['', `Création du projet « ${r.name} » et des namespaces associés`],
+      ['', `Création du projet « ${r.resources.rancherName || r.name} » et des namespaces associés`],
       ['ok', 'Quotas CPU/RAM appliqués · RBAC synchronisé'],
     ],
   },
@@ -135,7 +134,7 @@ const PROV_STEPS = [
       const def = RESOURCE_DEFS.vm;
       return [
         ['info', `Clonage du modèle ubuntu-22.04 (${r.resources.vmCount} instance(s))…`],
-        ...vmSizes.map((sz, i) => ['', `VM #${i + 1} : gabarit ${def.planLabels[sz] ?? sz}`]),
+        ...vmSizes.map((sz, i) => ['', `VM #${i + 1} : gabarit ${sizePlan(def, sz)}`]),
         ['', 'Attribution des adresses IP et enregistrement DNS'],
         ['ok', `${r.resources.vmCount} VM démarrée(s) · agent de supervision installé`],
       ];
@@ -167,8 +166,8 @@ const PROV_STEPS = [
     needs: r => r.resources.serverless || r.resources.wiki,
     logs: r => [
       ['info', 'Activation des services managés…'],
-      ...(r.resources.serverless ? [['', `Namespace serverless « ${r.name} » provisionné · autoscaling activé`]] : []),
-      ...(r.resources.wiki       ? [['', `Wiki « ${r.name}-wiki » créé · base et stockage initialisés`]] : []),
+      ...(r.resources.serverless ? [['', `Namespace serverless « ${r.name} » provisionné · image ${r.resources.serverlessImage || 'harbor.exemple.fr/' + r.name + ':latest'} · autoscaling activé`]] : []),
+      ...(r.resources.wiki       ? [['', `Wiki « ${r.resources.wikiName || r.name + '-wiki'} » créé · base et stockage initialisés`]] : []),
       ['ok', 'Services complémentaires disponibles'],
     ],
   },
@@ -196,7 +195,7 @@ const PROV_STEPS = [
    2. État global + persistance
    ============================================================ */
 
-const STORAGE_KEY = 'helios-demo-state-v1';
+const STORAGE_KEY = 'helios-demo-state-v2';
 const now = () => Date.now();
 const MIN = 60000, HOUR = 3600000, DAY = 86400000;
 
@@ -239,7 +238,7 @@ function defaultState() {
         id: 'REQ-1037', name: 'portail-rh', team: 'équipe-web', requester: 'Marie Lambert',
         description: 'Refonte du portail RH interne (congés, notes de frais).',
         env: 'staging', size: 'M',
-        resources: { rancher: true, harbor: false, vm: true, vmCount: 1, postgres: true, mongo: false, storage: true, storageGb: 50 },
+        resources: { rancher: true, harbor: false, vm: true, vmCount: 1, postgres: true, mongo: false },
         status: 'available', createdAt: t0 - 3 * DAY,
         comment: 'Validé pour la recette. Prévoir une demande dédiée pour la production.',
         history: [
@@ -253,7 +252,7 @@ function defaultState() {
         id: 'REQ-1039', name: 'sandbox-data', team: 'équipe-data', requester: 'Karim Benali',
         description: 'Bac à sable pour tests de modèles de scoring.',
         env: 'dev', size: 'L',
-        resources: { rancher: true, harbor: true, vm: true, vmCount: 4, postgres: false, mongo: true, storage: true, storageGb: 500 },
+        resources: { rancher: true, harbor: true, vm: true, vmCount: 4, postgres: false, mongo: true },
         status: 'rejected', createdAt: t0 - DAY,
         comment: 'Dimensionnement trop important pour un bac à sable : merci de repasser en taille S et d’utiliser l’offre data mutualisée.',
         history: [
@@ -341,6 +340,23 @@ function logActivity(icon, text) {
   state.activity.unshift({ ts: now(), icon, text });
 }
 
+/* Tarif « sur mesure » simulé à partir des ressources unitaires choisies */
+function customPrice(c) {
+  return Math.round((c?.cpu ?? 0) * 12 + (c?.ram ?? 0) * 6 + (c?.storage ?? 0) * 0.2);
+}
+
+/* Prix mensuel d'une ressource dimensionnée pour une taille donnée */
+function sizePrice(def, sz, custom) {
+  if (sz === 'custom') return customPrice(custom);
+  return def.prices?.[sz] ?? def.base;
+}
+
+/* Libellé de gabarit/plan d'une ressource pour une taille donnée */
+function sizePlan(def, sz) {
+  if (sz === 'custom') return 'Sur mesure';
+  return def.planLabels?.[sz] ?? sz;
+}
+
 /* Coût mensuel estimé d'une demande (tarifs réels HT) */
 function computeCost(req) {
   const r = req.resources;
@@ -359,33 +375,31 @@ function computeCost(req) {
     const def = RESOURCE_DEFS.vm;
     const vmSizes = req.vmSizes ?? Array(r.vmCount).fill(getSize('vm'));
     vmSizes.forEach((sz, i) => {
-      const plan = def.planLabels[sz] ?? 'VM-XS';
-      lines.push([`VM ${plan}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, def.prices[sz] ?? def.base]);
+      lines.push([`VM ${sizePlan(def, sz)}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, sizePrice(def, sz, req.custom)]);
     });
   }
   if (r.postgres) {
     const def = RESOURCE_DEFS.postgres; const sz = getSize('postgres');
-    lines.push([`PostgreSQL — ${def.planLabels[sz] ?? 'PG-Dev'}`, def.prices[sz] ?? def.base]);
+    lines.push([`PostgreSQL — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
   }
   if (r.mariadb) {
     const def = RESOURCE_DEFS.mariadb; const sz = getSize('mariadb');
-    lines.push([`MariaDB — ${def.planLabels[sz] ?? 'Maria-Dev'}`, def.prices[sz] ?? def.base]);
+    lines.push([`MariaDB — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
   }
   if (r.mongo) {
     const def = RESOURCE_DEFS.mongo; const sz = getSize('mongo');
-    lines.push([`MongoDB — ${def.planLabels[sz] ?? 'Mongo-Dev'}`, def.prices[sz] ?? def.base]);
+    lines.push([`MongoDB — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
   }
   if (r.redis) {
     const def = RESOURCE_DEFS.redis; const sz = getSize('redis');
-    lines.push([`Redis — ${def.planLabels[sz] ?? 'Redis-Dev'}`, def.prices[sz] ?? def.base]);
+    lines.push([`Redis — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
   }
   if (r.rabbitmq) {
     const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
-    lines.push([`RabbitMQ — ${def.planLabels[sz] ?? 'Rabbit-Dev'}`, def.prices[sz] ?? def.base]);
+    lines.push([`RabbitMQ — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
   }
   if (r.serverless) lines.push(['Serverless Containers (min.)', RESOURCE_DEFS.serverless.base]);
   if (r.wiki)       lines.push(['Wiki as a Service', RESOURCE_DEFS.wiki.base]);
-  if (r.storage)    lines.push([`Stockage objet (${r.storageGb} Go)`, RESOURCE_DEFS.storage.base * r.storageGb]);
   const total = Math.round(lines.reduce((s, l) => s + l[1], 0));
   return { lines, total };
 }
@@ -394,7 +408,7 @@ function computeCost(req) {
 function resourceSummary(req) {
   const r = req.resources;
   const out = [];
-  if (r.rancher)    out.push('Projet Rancher');
+  if (r.rancher)    out.push(`Projet Rancher${r.rancherName ? ` (${r.rancherName})` : ''}`);
   if (r.harbor)     out.push(`Registry Harbor (${r.registryGb ?? 10} Go)`);
   if (r.vm)         out.push(`${r.vmCount} VM`);
   if (r.postgres)   out.push('PostgreSQL');
@@ -403,8 +417,7 @@ function resourceSummary(req) {
   if (r.redis)      out.push('Redis');
   if (r.rabbitmq)   out.push('RabbitMQ');
   if (r.serverless) out.push('Serverless');
-  if (r.wiki)       out.push('Wiki');
-  if (r.storage)    out.push(`Stockage ${r.storageGb} Go`);
+  if (r.wiki)       out.push(`Wiki${r.wikiName ? ` (${r.wikiName})` : ''}`);
   return out;
 }
 
@@ -670,15 +683,15 @@ function newWizard() {
     data: {
       name: '', team: TEAMS[0], description: '',
       env: 'dev', size: 'S',
+      custom: { cpu: 2, ram: 4, storage: 20 },
       resourceSizes: { vm: 'S', postgres: 'S', mariadb: 'S', mongo: 'S', redis: 'S', rabbitmq: 'S' },
       vmSizes: ['S', 'S'],
       resources: {
-        rancher: true, harbor: false, registryGb: 10,
+        rancher: true, rancherName: '', harbor: false, registryGb: 10,
         vm: false, vmCount: 2,
         postgres: false, mariadb: false, mongo: false,
         redis: false, rabbitmq: false,
-        serverless: false, wiki: false,
-        storage: false, storageGb: 100,
+        serverless: false, serverlessImage: '', wiki: false, wikiName: '',
       },
     },
   };
@@ -776,8 +789,7 @@ function wizStep3() {
   const card = (key, extra = '') => {
     const def = RESOURCE_DEFS[key];
     let priceStr;
-    if (key === 'storage')    priceStr = '0,10 € / Go / mois';
-    else if (key === 'harbor') priceStr = '1 € / Go / mois';
+    if (key === 'harbor')      priceStr = '1 € / Go / mois';
     else                       priceStr = `dès ${euro(def.base)} / mois`;
     return `
       <div class="pick-card ${r[key] ? 'is-selected' : ''}" data-action="wiz-res" data-arg="${key}">
@@ -792,7 +804,11 @@ function wizStep3() {
     <div class="form-row">
       <label class="field-label">Ressources souhaitées <span class="required">*</span> <span class="muted">(au moins une)</span></label>
       <div class="pick-grid">
-        ${card('rancher')}
+        ${card('rancher', `
+          <div class="pick-card__qty" data-stop>
+            <span>Nom :</span>
+            <input type="text" value="${esc(r.rancherName)}" placeholder="nom du projet Rancher" data-input="wiz-ranchername">
+          </div>`)}
         ${card('harbor', `
           <div class="pick-card__qty" data-stop>
             <span>Volume (Go) :</span>
@@ -808,12 +824,15 @@ function wizStep3() {
         ${card('mongo')}
         ${card('redis')}
         ${card('rabbitmq')}
-        ${card('serverless')}
-        ${card('wiki')}
-        ${card('storage', `
+        ${card('serverless', `
           <div class="pick-card__qty" data-stop>
-            <span>Volume (Go) :</span>
-            <input type="number" min="10" max="2000" step="10" value="${r.storageGb}" data-input="wiz-storagegb">
+            <span>Image :</span>
+            <input type="text" value="${esc(r.serverlessImage)}" placeholder="harbor.exemple.fr/projet/image:tag" data-input="wiz-serverlessimage">
+          </div>`)}
+        ${card('wiki', `
+          <div class="pick-card__qty" data-stop>
+            <span>Nom :</span>
+            <input type="text" value="${esc(r.wikiName)}" placeholder="nom du wiki" data-input="wiz-wikiname">
           </div>`)}
       </div>
     </div>`;
@@ -835,8 +854,12 @@ function wizStep4() {
 
   const sizeBtns = (currentSize, actionArg) =>
     Object.keys(SIZES).map(sz =>
-      `<button class="size-btn ${currentSize === sz ? 'size-btn--active' : ''}" data-action="wiz-ressize" data-arg="${actionArg}:${sz}">${sz}</button>`
+      `<button class="size-btn ${currentSize === sz ? 'size-btn--active' : ''}" data-action="wiz-ressize" data-arg="${actionArg}:${sz}" title="${SIZES[sz].label}">${sz === 'custom' ? '⚙' : sz}</button>`
     ).join('');
+
+  /* Au moins une ressource dimensionnée est-elle « sur mesure » ? */
+  const usesCustom = effectiveSize === 'custom' || selectedSized.some(k =>
+    k === 'vm' ? d.vmSizes.some(s => s === 'custom') : (rs[k] ?? d.size) === 'custom');
 
   const customRows = selectedSized.map(key => {
     const def = RESOURCE_DEFS[key];
@@ -845,7 +868,7 @@ function wizStep4() {
         <div class="res-size-row">
           <div class="res-size-label">${def.icon} ${def.label} <span class="chip chip--sm">#${i + 1}</span></div>
           <div class="res-size-btns">${sizeBtns(sz, `vm:${i}`)}</div>
-          <div class="res-size-price">${euro(def.prices[sz] ?? def.base)} <small>/mois</small></div>
+          <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
         </div>`).join('');
     }
     const sz = rs[key] ?? d.size;
@@ -853,7 +876,7 @@ function wizStep4() {
       <div class="res-size-row">
         <div class="res-size-label">${def.icon} ${def.label}</div>
         <div class="res-size-btns">${sizeBtns(sz, key)}</div>
-        <div class="res-size-price">${euro(def.prices[sz] ?? def.base)} <small>/mois</small></div>
+        <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
       </div>`;
   }).join('');
 
@@ -869,6 +892,20 @@ function wizStep4() {
       </div>
       ${effectiveSize === null ? '<div class="hint">Tailles personnalisées par ressource — aucun gabarit global unique. Choisir un gabarit réappliquera la même taille à toutes les ressources.</div>' : ''}
     </div>
+
+    ${usesCustom ? `
+    <div class="form-row">
+      <label class="field-label">Spécifications sur mesure <span class="muted">— appliquées aux ressources « Sur mesure »</span></label>
+      <div class="custom-spec" style="display:flex; gap:18px; flex-wrap:wrap;">
+        <label style="display:flex; flex-direction:column; gap:4px; font-size:13px;">vCPU
+          <input type="number" min="1" max="64" value="${d.custom.cpu}" data-input="wiz-cpu"></label>
+        <label style="display:flex; flex-direction:column; gap:4px; font-size:13px;">RAM (Go)
+          <input type="number" min="1" max="256" value="${d.custom.ram}" data-input="wiz-ram"></label>
+        <label style="display:flex; flex-direction:column; gap:4px; font-size:13px;">Stockage (Go)
+          <input type="number" min="1" max="2000" value="${d.custom.storage}" data-input="wiz-customstorage"></label>
+      </div>
+      <div class="hint">Tarif simulé : 12 €/vCPU + 6 €/Go de RAM + 0,20 €/Go de stockage, par ressource dimensionnée.</div>
+    </div>` : ''}
 
     ${selectedSized.length ? `
     <div class="form-row">
@@ -958,7 +995,7 @@ function validateWizardStep() {
   }
   if (w.step === 2) {
     const r = d.resources;
-    if (!r.rancher && !r.harbor && !r.vm && !r.postgres && !r.mariadb && !r.mongo && !r.redis && !r.rabbitmq && !r.serverless && !r.wiki && !r.storage)
+    if (!r.rancher && !r.harbor && !r.vm && !r.postgres && !r.mariadb && !r.mongo && !r.redis && !r.rabbitmq && !r.serverless && !r.wiki)
       return 'Sélectionnez au moins une ressource.';
   }
   return '';
@@ -972,6 +1009,7 @@ function submitWizard() {
     id, name: d.name.trim(), team: d.team, requester: 'Marie Lambert',
     description: d.description.trim(),
     env: d.env, size: d.size,
+    custom: { ...d.custom },
     resourceSizes: { ...d.resourceSizes },
     vmSizes: [...d.vmSizes],
     resources: { ...d.resources },
@@ -1180,7 +1218,7 @@ function adminRequestPage() {
   const globalSz = r.size ?? 'S';
   const getSize = key => rs[key] ?? globalSz;
   const resRows = [];
-  if (res.rancher) resRows.push(['🐮 Projet Rancher (K8s)', '1', euro(RESOURCE_DEFS.rancher.base)]);
+  if (res.rancher) resRows.push(['🐮 Projet Rancher (K8s)', esc(res.rancherName || '—'), euro(RESOURCE_DEFS.rancher.base)]);
   if (res.harbor) {
     const gb = res.registryGb ?? 10;
     resRows.push(['⚓ Registry Harbor', `${gb} Go`, euro(gb)]);
@@ -1189,33 +1227,32 @@ function adminRequestPage() {
     const def = RESOURCE_DEFS.vm;
     const vmSizes = r.vmSizes ?? Array(res.vmCount).fill(getSize('vm'));
     vmSizes.forEach((sz, i) => {
-      const plan = def.planLabels[sz] ?? 'VM-XS';
-      resRows.push([`🖥️ VM ${plan}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, '1', euro(def.prices[sz] ?? def.base)]);
+      const plan = sizePlan(def, sz);
+      resRows.push([`🖥️ VM ${plan}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, '1', euro(sizePrice(def, sz, r.custom))]);
     });
   }
   if (res.postgres) {
     const def = RESOURCE_DEFS.postgres; const sz = getSize('postgres');
-    resRows.push([`🐘 PostgreSQL — ${def.planLabels[sz] ?? 'PG-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+    resRows.push([`🐘 PostgreSQL — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
   }
   if (res.mariadb) {
     const def = RESOURCE_DEFS.mariadb; const sz = getSize('mariadb');
-    resRows.push([`🗃️ MariaDB — ${def.planLabels[sz] ?? 'Maria-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+    resRows.push([`🗃️ MariaDB — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
   }
   if (res.mongo) {
     const def = RESOURCE_DEFS.mongo; const sz = getSize('mongo');
-    resRows.push([`🍃 MongoDB — ${def.planLabels[sz] ?? 'Mongo-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+    resRows.push([`🍃 MongoDB — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
   }
   if (res.redis) {
     const def = RESOURCE_DEFS.redis; const sz = getSize('redis');
-    resRows.push([`🔴 Redis — ${def.planLabels[sz] ?? 'Redis-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+    resRows.push([`🔴 Redis — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
   }
   if (res.rabbitmq) {
     const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
-    resRows.push([`🐰 RabbitMQ — ${def.planLabels[sz] ?? 'Rabbit-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+    resRows.push([`🐰 RabbitMQ — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
   }
-  if (res.serverless) resRows.push(['⚡ Serverless Containers', '1 service', euro(RESOURCE_DEFS.serverless.base)]);
-  if (res.wiki)       resRows.push(['📖 Wiki as a Service', '1', euro(RESOURCE_DEFS.wiki.base)]);
-  if (res.storage)    resRows.push([`🗄️ Stockage objet`, `${res.storageGb} Go`, euro(Math.round(RESOURCE_DEFS.storage.base * res.storageGb))]);
+  if (res.serverless) resRows.push(['⚡ Serverless Containers', esc(res.serverlessImage || '1 service'), euro(RESOURCE_DEFS.serverless.base)]);
+  if (res.wiki)       resRows.push(['📖 Wiki as a Service', esc(res.wikiName || '—'), euro(RESOURCE_DEFS.wiki.base)]);
 
   return `
     ${pageHeader('admin', {
@@ -1477,27 +1514,25 @@ function createEntitiesFromRequest(r) {
         tags: [ENVIRONMENTS[r.env].label.toLowerCase(), 'taille-' + r.size.toLowerCase()],
         description: r.description || `Projet provisionné via la demande ${r.id}.` }); count++;
   if (r.resources.rancher) { add({ name: `${r.name}-rancher`, kind: 'Resource', type: 'rancher-project', tags: ['kubernetes'],
-        description: `Projet Rancher (namespaces et quotas) du projet ${r.name}.` }); count++; }
+        description: `Projet Rancher « ${r.resources.rancherName || r.name} » (namespaces et quotas) du projet ${r.name}.` }); count++; }
   if (r.resources.harbor) { add({ name: `${r.name}-registry`, kind: 'Resource', type: 'harbor-project', tags: ['harbor', 'docker'],
         description: `Registre d'images Harbor du projet ${r.name} (${r.resources.registryGb ?? 10} Go).` }); count++; }
   if (r.resources.vm) { add({ name: `${r.name}-vms`, kind: 'Resource', type: 'virtual-machine', tags: [`x${r.resources.vmCount}`, r.size.toLowerCase()],
-        description: `${r.resources.vmCount} machine(s) virtuelle(s) plan ${RESOURCE_DEFS.vm.planLabels[r.size] ?? 'VM-XS'}.` }); count++; }
-  if (r.resources.postgres) { add({ name: `${r.name}-postgresql`, kind: 'Resource', type: 'database', tags: ['postgresql', RESOURCE_DEFS.postgres.planLabels[r.size]?.toLowerCase() ?? 'pg-dev'],
+        description: `${r.resources.vmCount} machine(s) virtuelle(s) plan ${sizePlan(RESOURCE_DEFS.vm, r.size)}.` }); count++; }
+  if (r.resources.postgres) { add({ name: `${r.name}-postgresql`, kind: 'Resource', type: 'database', tags: ['postgresql', sizePlan(RESOURCE_DEFS.postgres, r.size).toLowerCase()],
         description: `Base PostgreSQL managée du projet ${r.name}.` }); count++; }
-  if (r.resources.mariadb) { add({ name: `${r.name}-mariadb`, kind: 'Resource', type: 'database', tags: ['mariadb', RESOURCE_DEFS.mariadb.planLabels[r.size]?.toLowerCase() ?? 'maria-dev'],
+  if (r.resources.mariadb) { add({ name: `${r.name}-mariadb`, kind: 'Resource', type: 'database', tags: ['mariadb', sizePlan(RESOURCE_DEFS.mariadb, r.size).toLowerCase()],
         description: `Base MariaDB managée du projet ${r.name}.` }); count++; }
-  if (r.resources.mongo) { add({ name: `${r.name}-mongodb`, kind: 'Resource', type: 'database', tags: ['mongodb', RESOURCE_DEFS.mongo.planLabels[r.size]?.toLowerCase() ?? 'mongo-dev'],
+  if (r.resources.mongo) { add({ name: `${r.name}-mongodb`, kind: 'Resource', type: 'database', tags: ['mongodb', sizePlan(RESOURCE_DEFS.mongo, r.size).toLowerCase()],
         description: `Base MongoDB managée du projet ${r.name}.` }); count++; }
-  if (r.resources.redis) { add({ name: `${r.name}-redis`, kind: 'Resource', type: 'cache', tags: ['redis', RESOURCE_DEFS.redis.planLabels[r.size]?.toLowerCase() ?? 'redis-dev'],
+  if (r.resources.redis) { add({ name: `${r.name}-redis`, kind: 'Resource', type: 'cache', tags: ['redis', sizePlan(RESOURCE_DEFS.redis, r.size).toLowerCase()],
         description: `Cache Redis managé du projet ${r.name}.` }); count++; }
-  if (r.resources.rabbitmq) { add({ name: `${r.name}-rabbitmq`, kind: 'Resource', type: 'message-broker', tags: ['rabbitmq', RESOURCE_DEFS.rabbitmq.planLabels[r.size]?.toLowerCase() ?? 'rabbit-dev'],
+  if (r.resources.rabbitmq) { add({ name: `${r.name}-rabbitmq`, kind: 'Resource', type: 'message-broker', tags: ['rabbitmq', sizePlan(RESOURCE_DEFS.rabbitmq, r.size).toLowerCase()],
         description: `Broker RabbitMQ managé du projet ${r.name}.` }); count++; }
   if (r.resources.serverless) { add({ name: `${r.name}-serverless`, kind: 'Resource', type: 'serverless', tags: ['serverless', 'containers'],
-        description: `Namespace serverless Containers du projet ${r.name}.` }); count++; }
+        description: `Namespace serverless Containers du projet ${r.name}${r.resources.serverlessImage ? ` (image ${r.resources.serverlessImage})` : ''}.` }); count++; }
   if (r.resources.wiki) { add({ name: `${r.name}-wiki`, kind: 'Resource', type: 'wiki', tags: ['wiki'],
-        description: `Wiki as a Service du projet ${r.name}.` }); count++; }
-  if (r.resources.storage) { add({ name: `${r.name}-storage`, kind: 'Resource', type: 'object-store', tags: [`${r.resources.storageGb}-go`],
-        description: `Stockage objet (${r.resources.storageGb} Go) du projet ${r.name}.` }); count++; }
+        description: `Wiki as a Service « ${r.resources.wikiName || r.name + '-wiki'} » du projet ${r.name}.` }); count++; }
   return count;
 }
 
@@ -1635,6 +1670,9 @@ $('#user-main').addEventListener('input', e => {
     case 'wiz-name': if (w) w.data.name = e.target.value; break;
     case 'wiz-team': if (w) w.data.team = e.target.value; break;
     case 'wiz-desc': if (w) w.data.description = e.target.value; break;
+    case 'wiz-ranchername':    if (w) w.data.resources.rancherName = e.target.value; break;
+    case 'wiz-serverlessimage': if (w) w.data.resources.serverlessImage = e.target.value; break;
+    case 'wiz-wikiname':       if (w) w.data.resources.wikiName = e.target.value; break;
     case 'wiz-vmcount':
       if (w) {
         const count = Math.max(1, Math.min(6, parseInt(e.target.value, 10) || 1));
@@ -1645,7 +1683,20 @@ $('#user-main').addEventListener('input', e => {
       }
       break;
     case 'wiz-registrygb': if (w) w.data.resources.registryGb = Math.max(1, Math.min(500,  parseInt(e.target.value, 10) || 10));  break;
-    case 'wiz-storagegb':  if (w) w.data.resources.storageGb  = Math.max(10, Math.min(2000, parseInt(e.target.value, 10) || 10)); break;
+    case 'wiz-cpu':
+    case 'wiz-ram':
+    case 'wiz-customstorage': {
+      if (!w) break;
+      const field = key === 'wiz-cpu' ? 'cpu' : key === 'wiz-ram' ? 'ram' : 'storage';
+      const max = field === 'cpu' ? 64 : field === 'ram' ? 256 : 2000;
+      w.data.custom[field] = Math.max(1, Math.min(max, parseInt(e.target.value, 10) || 1));
+      // Re-rendu pour mettre à jour l'estimation, avec restauration du focus
+      const pos = e.target.selectionStart;
+      renderUser();
+      const again = document.querySelector(`[data-input="${key}"]`);
+      if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
+      break;
+    }
     case 'catalog-search': {
       // Re-rendu du tableau filtré + restauration du focus dans le champ
       ui.user.search = e.target.value;
