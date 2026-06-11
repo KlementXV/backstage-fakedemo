@@ -883,6 +883,12 @@ table.bs-table {
   font-family: inherit; font-size: 13px; font-weight: 400; color: var(--bs-text);
 }
 
+/* Ligne « Sur mesure » dépliée sous une ressource dimensionnée en custom */
+.res-custom-row { background: #f0f5fc; border-color: #d2e0f4; border-style: dashed; }
+.res-custom-row .res-size-label { flex: 0 0 auto; font-weight: 600; }
+.res-custom-row .custom-spec { margin-top: 0; flex: 1; gap: 14px; }
+.res-custom-row .custom-spec input { width: 96px; }
+
 .size-btn {
   padding: 4px 10px;
   border: 1.5px solid var(--bs-border);
