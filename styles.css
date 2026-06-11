@@ -529,11 +529,6 @@ table.bs-table {
   50%      { opacity: .35; transform: scale(.75); }
 }
 
-/* Niveau de criticité */
-.crit { font-weight: 700; font-size: 12px; text-transform: uppercase; letter-spacing: .4px; }
-.crit--low    { color: #2e7d32; }
-.crit--medium { color: #b07800; }
-.crit--high   { color: #c62828; }
 
 /* ---------- 8. Boutons & formulaires ---------- */
 .btn {

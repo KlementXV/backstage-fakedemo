@@ -45,11 +45,6 @@ const SIZES = {
   XL: { label: 'XL — Intensif',    mult: 5,   specs: '16 vCPU · 32 Go RAM par instance' },
 };
 
-const CRITICALITIES = {
-  low:    { label: 'Faible',  cls: 'crit--low' },
-  medium: { label: 'Moyenne', cls: 'crit--medium' },
-  high:   { label: 'Haute',   cls: 'crit--high' },
-};
 
 /* Ressources sélectionnables dans l'assistant (coûts mensuels simulés) */
 const RESOURCE_DEFS = {
@@ -75,24 +70,7 @@ const TEMPLATES = [
     desc: 'Crée un projet complet : Rancher, Harbor, machines virtuelles, bases de données et stockage, avec workflow de validation.',
     tags: ['rancher', 'harbor', 'vm', 'postgresql', 'mongodb'],
   },
-  {
-    id: 'node-service', enabled: false, type: 'Service',
-    title: 'Nouveau microservice Node.js',
-    desc: 'Génère un squelette de service Node.js avec CI/CD, observabilité et documentation technique.',
-    tags: ['node', 'docker', 'ci'],
-  },
-  {
-    id: 'docs-site', enabled: false, type: 'Documentation',
-    title: 'Site de documentation',
-    desc: 'Publie un site de documentation technique versionné à partir d’un dépôt Markdown.',
-    tags: ['techdocs', 'markdown'],
-  },
-  {
-    id: 'ephemeral-k8s', enabled: false, type: 'Infrastructure',
-    title: 'Cluster Kubernetes éphémère',
-    desc: 'Déploie un cluster jetable pour des tests de charge ou des expérimentations limitées dans le temps.',
-    tags: ['kubernetes', 'éphémère'],
-  },
+
 ];
 
 /* Statuts d'une demande */
@@ -212,7 +190,7 @@ function defaultState() {
       {
         id: 'REQ-1037', name: 'portail-rh', team: 'équipe-web', requester: 'Marie Lambert',
         description: 'Refonte du portail RH interne (congés, notes de frais).',
-        criticality: 'medium', env: 'staging', size: 'M',
+        env: 'staging', size: 'M',
         resources: { rancher: true, harbor: false, vm: true, vmCount: 1, postgres: true, mongo: false, storage: true, storageGb: 50 },
         status: 'available', createdAt: t0 - 3 * DAY,
         comment: 'Validé pour la recette. Prévoir une demande dédiée pour la production.',
@@ -226,7 +204,7 @@ function defaultState() {
       {
         id: 'REQ-1039', name: 'sandbox-data', team: 'équipe-data', requester: 'Karim Benali',
         description: 'Bac à sable pour tests de modèles de scoring.',
-        criticality: 'low', env: 'dev', size: 'L',
+        env: 'dev', size: 'L',
         resources: { rancher: true, harbor: true, vm: true, vmCount: 4, postgres: false, mongo: true, storage: true, storageGb: 500 },
         status: 'rejected', createdAt: t0 - DAY,
         comment: 'Dimensionnement trop important pour un bac à sable : merci de repasser en taille S et d’utiliser l’offre data mutualisée.',
@@ -356,10 +334,6 @@ function chips(tags, cls = '') {
   return (tags || []).map(t => `<span class="chip ${cls}">${esc(t)}</span>`).join('');
 }
 
-function critChip(key) {
-  const c = CRITICALITIES[key] || CRITICALITIES.medium;
-  return `<span class="crit ${c.cls}">● ${c.label}</span>`;
-}
 
 /* Header de page façon Backstage : breadcrumbs + titre + métadonnées */
 function pageHeader(theme, { crumbs, title, subtitle, meta = [], actions = '' }) {
@@ -607,7 +581,7 @@ function newWizard() {
     error: '',
     sentRequestId: null,
     data: {
-      name: '', team: TEAMS[0], description: '', criticality: 'medium',
+      name: '', team: TEAMS[0], description: '',
       env: 'dev', size: 'M',
       resources: { rancher: true, harbor: false, vm: false, vmCount: 2, postgres: false, mongo: false, storage: false, storageGb: 100 },
     },
@@ -679,18 +653,7 @@ function wizStep1() {
       <label class="field-label">Description</label>
       <textarea rows="3" placeholder="À quoi servira ce projet ?" data-input="wiz-desc">${esc(d.description)}</textarea>
     </div>
-    <div class="form-row">
-      <label class="field-label">Niveau de criticité</label>
-      <div class="pick-grid">
-        ${Object.entries(CRITICALITIES).map(([k, c]) => `
-          <div class="pick-card ${d.criticality === k ? 'is-selected' : ''}" data-action="wiz-crit" data-arg="${k}">
-            <div class="pick-card__title"><span class="crit ${c.cls}">● ${c.label}</span></div>
-            <div class="pick-card__desc">${k === 'low' ? 'Outil interne, interruption tolérée.'
-              : k === 'medium' ? 'Service métier, interruption gênante.'
-              : 'Service critique, astreinte requise.'}</div>
-          </div>`).join('')}
-      </div>
-    </div>`;
+  `;
 }
 
 /* Étape 2 : environnement cible */
@@ -783,7 +746,6 @@ function wizStep5() {
       <div><span class="label">Nom du projet</span><span class="value mono">${esc(d.name)}</span></div>
       <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
       <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[d.env].icon} ${ENVIRONMENTS[d.env].label}</span></div>
-      <div><span class="label">Criticité</span><span class="value">${critChip(d.criticality)}</span></div>
       <div><span class="label">Taille</span><span class="value">${SIZES[d.size].label}</span></div>
       <div class="kv--full"><span class="label">Description</span><span class="value">${esc(d.description) || '—'}</span></div>
       <div class="kv--full"><span class="label">Ressources</span>
@@ -835,7 +797,7 @@ function submitWizard() {
   const id = `REQ-${state.nextRequestNum++}`;
   const req = {
     id, name: d.name.trim(), team: d.team, requester: 'Marie Lambert',
-    description: d.description.trim(), criticality: d.criticality,
+    description: d.description.trim(),
     env: d.env, size: d.size,
     resources: { ...d.resources },
     status: 'pending', createdAt: now(),
@@ -921,7 +883,6 @@ function userRequestDetailPage() {
           <div class="kv-grid">
             <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</span></div>
             <div><span class="label">Taille</span><span class="value">${SIZES[r.size].label}</span></div>
-            <div><span class="label">Criticité</span><span class="value">${critChip(r.criticality)}</span></div>
             <div><span class="label">Coût mensuel estimé</span><span class="value">${euro(cost.total)}</span></div>
             <div class="kv--full"><span class="label">Description</span><span class="value">${esc(r.description) || '—'}</span></div>
             <div class="kv--full"><span class="label">Ressources demandées</span>
@@ -1011,7 +972,7 @@ function adminInboxPage() {
           <table class="bs-table">
             <thead><tr>
               <th>Réf.</th><th>Projet</th><th>Demandeur</th><th>Env.</th>
-              <th>Criticité</th><th>Coût/mois</th><th>Statut</th><th>Créée</th>
+              <th>Coût/mois</th><th>Statut</th><th>Créée</th>
             </tr></thead>
             <tbody>
               ${list.map(r => `
@@ -1020,7 +981,6 @@ function adminInboxPage() {
                   <td><span class="cell-name">${esc(r.name)}</span></td>
                   <td class="cell-secondary">${esc(r.requester)}<br><span class="muted">${esc(r.team)}</span></td>
                   <td class="cell-secondary">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</td>
-                  <td>${critChip(r.criticality)}</td>
                   <td>${euro(computeCost(r).total)}</td>
                   <td>${statusChip(r.status)}</td>
                   <td class="cell-secondary">${timeAgo(r.createdAt)}</td>
@@ -1055,7 +1015,7 @@ function adminRequestPage() {
       crumbs: [{ label: 'Validations', action: 'admin-goto-inbox' }, { label: r.id }],
       title: `${r.id} — ${r.name}`,
       subtitle: `Soumise par ${esc(r.requester)} (${esc(r.team)}) · ${timeAgo(r.createdAt)}`,
-      meta: [['Statut', statusChip(r.status)], ['Criticité', critChip(r.criticality)]],
+      meta: [['Statut', statusChip(r.status)]],
     })}
     <div class="content">
 
@@ -1090,7 +1050,7 @@ function adminRequestPage() {
       <div class="card">
         <div class="card__header"><span class="card__title">Décision</span></div>
         <div class="card__body">
-          ${r.env === 'prod' ? '<div class="banner banner--warning">⚠️ <span>Demande en <strong>production</strong> : vérifiez le dimensionnement et la criticité avant validation.</span></div>' : ''}
+          ${r.env === 'prod' ? '<div class="banner banner--warning">⚠️ <span>Demande en <strong>production</strong> : vérifiez le dimensionnement avant validation.</span></div>' : ''}
           <div class="form-row">
             <label class="field-label">Commentaire (visible par le demandeur)</label>
             <textarea rows="2" id="admin-comment" placeholder="ex. Validé — pensez à activer les sauvegardes."></textarea>
@@ -1418,7 +1378,6 @@ $('#user-main').addEventListener('click', e => {
       w.error = '';
       submitWizard();
       break;
-    case 'wiz-crit': if (w) { w.data.criticality = arg; renderUser(); } break;
     case 'wiz-env': if (w) { w.data.env = arg; renderUser(); } break;
     case 'wiz-size': if (w) { w.data.size = arg; renderUser(); } break;
     case 'wiz-res':
