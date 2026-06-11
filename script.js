@@ -340,6 +340,14 @@ function logActivity(icon, text) {
   state.activity.unshift({ ts: now(), icon, text });
 }
 
+/* Spécification « sur mesure » par défaut, par ressource */
+const DEFAULT_CUSTOM = { cpu: 2, ram: 4, storage: 20 };
+
+/* Spécification sur mesure d'une ressource (clé : nom de ressource, ou « vm:<index> ») */
+function specFor(req, key) {
+  return (req.customSpecs && req.customSpecs[key]) || DEFAULT_CUSTOM;
+}
+
 /* Tarif « sur mesure » simulé à partir des ressources unitaires choisies */
 function customPrice(c) {
   return Math.round((c?.cpu ?? 0) * 12 + (c?.ram ?? 0) * 6 + (c?.storage ?? 0) * 0.2);
@@ -375,28 +383,28 @@ function computeCost(req) {
     const def = RESOURCE_DEFS.vm;
     const vmSizes = req.vmSizes ?? Array(r.vmCount).fill(getSize('vm'));
     vmSizes.forEach((sz, i) => {
-      lines.push([`VM ${sizePlan(def, sz)}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, sizePrice(def, sz, req.custom)]);
+      lines.push([`VM ${sizePlan(def, sz)}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, sizePrice(def, sz, specFor(req, 'vm:' + i))]);
     });
   }
   if (r.postgres) {
     const def = RESOURCE_DEFS.postgres; const sz = getSize('postgres');
-    lines.push([`PostgreSQL — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
+    lines.push([`PostgreSQL — ${sizePlan(def, sz)}`, sizePrice(def, sz, specFor(req, 'postgres'))]);
   }
   if (r.mariadb) {
     const def = RESOURCE_DEFS.mariadb; const sz = getSize('mariadb');
-    lines.push([`MariaDB — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
+    lines.push([`MariaDB — ${sizePlan(def, sz)}`, sizePrice(def, sz, specFor(req, 'mariadb'))]);
   }
   if (r.mongo) {
     const def = RESOURCE_DEFS.mongo; const sz = getSize('mongo');
-    lines.push([`MongoDB — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
+    lines.push([`MongoDB — ${sizePlan(def, sz)}`, sizePrice(def, sz, specFor(req, 'mongo'))]);
   }
   if (r.redis) {
     const def = RESOURCE_DEFS.redis; const sz = getSize('redis');
-    lines.push([`Redis — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
+    lines.push([`Redis — ${sizePlan(def, sz)}`, sizePrice(def, sz, specFor(req, 'redis'))]);
   }
   if (r.rabbitmq) {
     const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
-    lines.push([`RabbitMQ — ${sizePlan(def, sz)}`, sizePrice(def, sz, req.custom)]);
+    lines.push([`RabbitMQ — ${sizePlan(def, sz)}`, sizePrice(def, sz, specFor(req, 'rabbitmq'))]);
   }
   if (r.serverless) lines.push(['Serverless Containers (min.)', RESOURCE_DEFS.serverless.base]);
   if (r.wiki)       lines.push(['Wiki as a Service', RESOURCE_DEFS.wiki.base]);
@@ -683,7 +691,7 @@ function newWizard() {
     data: {
       name: '', team: TEAMS[0], description: '',
       env: 'dev', size: 'S',
-      custom: { cpu: 2, ram: 4, storage: 20 },
+      customSpecs: {},
       resourceSizes: { vm: 'S', postgres: 'S', mariadb: 'S', mongo: 'S', redis: 'S', rabbitmq: 'S' },
       vmSizes: ['S', 'S'],
       resources: {
@@ -827,20 +835,28 @@ function wizStep4() {
         'Revenez à l’étape « Ressources » pour sélectionner au moins une ressource à provisionner.')}`;
   }
 
-  /* Le gabarit global ne reflète que ce qui est réellement appliqué :
-     une taille si toutes les ressources dimensionnées la partagent, null sinon. */
-  const effectiveSize = effectiveSizeOf(d);
-
   const sizeBtns = (currentSize, actionArg) =>
     Object.keys(SIZES).map(sz =>
-      `<button class="size-btn ${currentSize === sz ? 'size-btn--active' : ''}" data-action="wiz-ressize" data-arg="${actionArg}:${sz}" title="${SIZES[sz].label}">${sz === 'custom' ? '⚙' : sz}</button>`
+      `<button class="size-btn ${currentSize === sz ? 'size-btn--active' : ''}" data-action="wiz-ressize" data-arg="${actionArg}:${sz}" title="${SIZES[sz].label}">${sz === 'custom' ? '⚙ Sur mesure' : sz}</button>`
     ).join('');
 
-  /* Au moins une ressource dimensionnée est-elle « sur mesure » ? */
-  const usesCustom = effectiveSize === 'custom' || selectedSized.some(k =>
-    k === 'vm' ? d.vmSizes.some(s => s === 'custom') : (rs[k] ?? d.size) === 'custom');
+  /* Ligne « Sur mesure » dépliée sous une ressource dimensionnée en custom :
+     vCPU / RAM / stockage propres à cette ressource (ou à cette VM). */
+  const customRow = specKey => {
+    const c = d.customSpecs[specKey] || DEFAULT_CUSTOM;
+    return `
+      <div class="res-size-row res-size-row--nested res-custom-row">
+        <div class="res-size-label muted">Sur mesure :</div>
+        <div class="custom-spec">
+          <label>vCPU<input type="number" min="1" max="64" value="${c.cpu}" data-input="wiz-rescustom" data-ckey="${specKey}" data-cfield="cpu"></label>
+          <label>RAM (Go)<input type="number" min="1" max="256" value="${c.ram}" data-input="wiz-rescustom" data-ckey="${specKey}" data-cfield="ram"></label>
+          <label>Stockage (Go)<input type="number" min="1" max="2000" value="${c.storage}" data-input="wiz-rescustom" data-ckey="${specKey}" data-cfield="storage"></label>
+        </div>
+        <div class="res-size-price">${euro(customPrice(c))} <small>/mois</small></div>
+      </div>`;
+  };
 
-  /* Ligne de configuration pour une ressource non dimensionnée à champ texte/nombre */
+  /* Ligne de configuration pour une ressource à champ texte/nombre simple */
   const fieldRow = (key, control, price) => {
     const def = RESOURCE_DEFS[key];
     return `
@@ -876,57 +892,43 @@ function wizStep4() {
             <div class="res-size-label">${def.icon} ${def.label}</div>
             <div class="res-config-control"><span class="muted">Nombre :</span>
               <input type="number" min="1" max="6" value="${r.vmCount}" data-input="wiz-vmcount"></div>
-            <div class="res-size-price">${euro(d.vmSizes.reduce((s, sz) => s + sizePrice(def, sz, d.custom), 0))} <small>/mois</small></div>
+            <div class="res-size-price">${euro(d.vmSizes.reduce((s, sz, i) => s + sizePrice(def, sz, specFor(d, 'vm:' + i)), 0))} <small>/mois</small></div>
           </div>`;
-        const items = d.vmSizes.map((sz, i) => `
-          <div class="res-size-row res-size-row--nested">
-            <div class="res-size-label"><span class="chip chip--sm">#${i + 1}</span></div>
-            <div class="res-size-btns">${sizeBtns(sz, `vm:${i}`)}</div>
-            <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
-          </div>`).join('');
+        const items = d.vmSizes.map((sz, i) => {
+          let row = `
+            <div class="res-size-row res-size-row--nested">
+              <div class="res-size-label"><span class="chip chip--sm">#${i + 1}</span></div>
+              <div class="res-size-btns">${sizeBtns(sz, `vm:${i}`)}</div>
+              <div class="res-size-price">${euro(sizePrice(def, sz, specFor(d, 'vm:' + i)))} <small>/mois</small></div>
+            </div>`;
+          if (sz === 'custom') row += customRow(`vm:${i}`);
+          return row;
+        }).join('');
         return head + items;
       }
       default: {
-        // bases de données, cache, broker : boutons de taille
+        // bases de données, cache, broker : boutons de taille par ligne
         const sz = rs[key] ?? d.size;
-        return `
+        let row = `
           <div class="res-size-row">
             <div class="res-size-label">${def.icon} ${def.label}</div>
             <div class="res-size-btns">${sizeBtns(sz, key)}</div>
-            <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
+            <div class="res-size-price">${euro(sizePrice(def, sz, specFor(d, key)))} <small>/mois</small></div>
           </div>`;
+        if (sz === 'custom') row += customRow(key);
+        return row;
       }
     }
   }).join('');
 
+  const anyCustom = selectedSized.some(k =>
+    k === 'vm' ? d.vmSizes.some(s => s === 'custom') : (rs[k] ?? d.size) === 'custom');
+
   return `
-    ${selectedSized.length ? `
     <div class="form-row">
-      <label class="field-label">Gabarit de base <span class="muted">— applique la même taille à toutes les ressources dimensionnées</span></label>
-      <div class="pick-grid">
-        ${Object.entries(SIZES).map(([k, s]) => `
-          <div class="pick-card ${effectiveSize === k ? 'is-selected' : ''}" data-action="wiz-size" data-arg="${k}">
-            <div class="pick-card__title">${s.label}</div>
-            <div class="pick-card__desc">${s.specs}</div>
-          </div>`).join('')}
-      </div>
-      ${effectiveSize === null ? '<div class="hint">Tailles personnalisées par ressource — aucun gabarit global unique. Choisir un gabarit réappliquera la même taille à toutes les ressources.</div>' : ''}
-    </div>
-
-    ${usesCustom ? `
-    <div class="form-row">
-      <label class="field-label">Spécifications sur mesure <span class="muted">— appliquées aux ressources « Sur mesure »</span></label>
-      <div class="custom-spec">
-        <label>vCPU<input type="number" min="1" max="64" value="${d.custom.cpu}" data-input="wiz-cpu"></label>
-        <label>RAM (Go)<input type="number" min="1" max="256" value="${d.custom.ram}" data-input="wiz-ram"></label>
-        <label>Stockage (Go)<input type="number" min="1" max="2000" value="${d.custom.storage}" data-input="wiz-customstorage"></label>
-      </div>
-      <div class="hint">Tarif simulé : 12 €/vCPU + 6 €/Go de RAM + 0,20 €/Go de stockage, par ressource dimensionnée.</div>
-    </div>` : ''}` : ''}
-
-    <div class="form-row">
-      <label class="field-label">Configuration des ressources <span class="muted">— renseignez les détails de chaque ressource sélectionnée</span></label>
+      <label class="field-label">Configuration des ressources <span class="muted">— renseignez les détails et le dimensionnement de chaque ressource</span></label>
       <div class="res-size-grid">${configRows}</div>
+      ${anyCustom ? '<div class="hint">Tarif « Sur mesure » simulé : 12 €/vCPU + 6 €/Go de RAM + 0,20 €/Go de stockage, par ressource.</div>' : ''}
     </div>
 
     <div class="cost-box">
@@ -1025,7 +1027,7 @@ function submitWizard() {
     id, name: d.name.trim(), team: d.team, requester: 'Marie Lambert',
     description: d.description.trim(),
     env: d.env, size: d.size,
-    custom: { ...d.custom },
+    customSpecs: JSON.parse(JSON.stringify(d.customSpecs || {})),
     resourceSizes: { ...d.resourceSizes },
     vmSizes: [...d.vmSizes],
     resources: { ...d.resources },
@@ -1244,28 +1246,28 @@ function adminRequestPage() {
     const vmSizes = r.vmSizes ?? Array(res.vmCount).fill(getSize('vm'));
     vmSizes.forEach((sz, i) => {
       const plan = sizePlan(def, sz);
-      resRows.push([`🖥️ VM ${plan}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, '1', euro(sizePrice(def, sz, r.custom))]);
+      resRows.push([`🖥️ VM ${plan}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, '1', euro(sizePrice(def, sz, specFor(r, 'vm:' + i)))]);
     });
   }
   if (res.postgres) {
     const def = RESOURCE_DEFS.postgres; const sz = getSize('postgres');
-    resRows.push([`🐘 PostgreSQL — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
+    resRows.push([`🐘 PostgreSQL — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, specFor(r, 'postgres')))]);
   }
   if (res.mariadb) {
     const def = RESOURCE_DEFS.mariadb; const sz = getSize('mariadb');
-    resRows.push([`🗃️ MariaDB — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
+    resRows.push([`🗃️ MariaDB — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, specFor(r, 'mariadb')))]);
   }
   if (res.mongo) {
     const def = RESOURCE_DEFS.mongo; const sz = getSize('mongo');
-    resRows.push([`🍃 MongoDB — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
+    resRows.push([`🍃 MongoDB — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, specFor(r, 'mongo')))]);
   }
   if (res.redis) {
     const def = RESOURCE_DEFS.redis; const sz = getSize('redis');
-    resRows.push([`🔴 Redis — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
+    resRows.push([`🔴 Redis — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, specFor(r, 'redis')))]);
   }
   if (res.rabbitmq) {
     const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
-    resRows.push([`🐰 RabbitMQ — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, r.custom))]);
+    resRows.push([`🐰 RabbitMQ — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, specFor(r, 'rabbitmq')))]);
   }
   if (res.serverless) resRows.push(['⚡ Serverless Containers', esc(res.serverlessImage || '1 service'), euro(RESOURCE_DEFS.serverless.base)]);
   if (res.wiki)       resRows.push(['📖 Wiki as a Service', esc(res.wikiName || '—'), euro(RESOURCE_DEFS.wiki.base)]);
@@ -1647,14 +1649,6 @@ $('#user-main').addEventListener('click', e => {
       submitWizard();
       break;
     case 'wiz-env': if (w) { w.data.env = arg; renderUser(); } break;
-    case 'wiz-size':
-      if (w) {
-        w.data.size = arg;
-        Object.keys(w.data.resourceSizes).forEach(k => { w.data.resourceSizes[k] = arg; });
-        w.data.vmSizes = w.data.vmSizes.map(() => arg);
-        renderUser();
-      }
-      break;
     case 'wiz-ressize': {
       if (!w) break;
       const parts = arg.split(':');
@@ -1679,10 +1673,10 @@ $('#user-main').addEventListener('click', e => {
 
 /* Re-rend le volet utilisateur puis redonne le focus (et le curseur) au champ saisi.
    Utilisé pour les champs dont la modification change l'affichage (prix, lignes VM…). */
-function rerenderKeepFocus(key, srcInput) {
+function rerenderKeepFocus(selector, srcInput) {
   const pos = srcInput.selectionStart;
   renderUser();
-  const again = document.querySelector(`[data-input="${key}"]`);
+  const again = document.querySelector(selector);
   if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
 }
 
@@ -1705,23 +1699,23 @@ $('#user-main').addEventListener('input', e => {
       const fillSize = w.data.vmSizes[0] ?? w.data.size;
       while (w.data.vmSizes.length < count) w.data.vmSizes.push(fillSize);
       w.data.vmSizes = w.data.vmSizes.slice(0, count);
-      rerenderKeepFocus(key, e.target);
+      rerenderKeepFocus(`[data-input="${key}"]`, e.target);
       break;
     }
     case 'wiz-registrygb': {
       if (!w) break;
       w.data.resources.registryGb = Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 10));
-      rerenderKeepFocus(key, e.target);
+      rerenderKeepFocus(`[data-input="${key}"]`, e.target);
       break;
     }
-    case 'wiz-cpu':
-    case 'wiz-ram':
-    case 'wiz-customstorage': {
+    case 'wiz-rescustom': {
       if (!w) break;
-      const field = key === 'wiz-cpu' ? 'cpu' : key === 'wiz-ram' ? 'ram' : 'storage';
-      const max = field === 'cpu' ? 64 : field === 'ram' ? 256 : 2000;
-      w.data.custom[field] = Math.max(1, Math.min(max, parseInt(e.target.value, 10) || 1));
-      rerenderKeepFocus(key, e.target);
+      const ck = e.target.dataset.ckey, cf = e.target.dataset.cfield;
+      const max = cf === 'cpu' ? 64 : cf === 'ram' ? 256 : 2000;
+      const specs = w.data.customSpecs;
+      if (!specs[ck]) specs[ck] = { ...DEFAULT_CUSTOM };
+      specs[ck][cf] = Math.max(1, Math.min(max, parseInt(e.target.value, 10) || 1));
+      rerenderKeepFocus(`[data-input="wiz-rescustom"][data-ckey="${ck}"][data-cfield="${cf}"]`, e.target);
       break;
     }
     case 'catalog-search': {
