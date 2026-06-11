@@ -39,27 +39,49 @@ const ENVIRONMENTS = {
 };
 
 const SIZES = {
-  S:  { label: 'S — Starter',      mult: 1,   specs: '2 vCPU · 4 Go RAM par instance' },
-  M:  { label: 'M — Standard',     mult: 1.8, specs: '4 vCPU · 8 Go RAM par instance' },
-  L:  { label: 'L — Performance',  mult: 3.2, specs: '8 vCPU · 16 Go RAM par instance' },
-  XL: { label: 'XL — Intensif',    mult: 5,   specs: '16 vCPU · 32 Go RAM par instance' },
+  S:  { label: 'S — Micro',       specs: 'VM-XS · PG-Dev · Redis-Dev · Rabbit-Dev' },
+  M:  { label: 'M — Standard',    specs: 'VM-M  · PG-M  · Redis-M  · Rabbit-M' },
+  L:  { label: 'L — Performance', specs: 'VM-L  · PG-L  · Redis-L  · Rabbit-L' },
+  XL: { label: 'XL — Intensif',   specs: 'VM-XL · PG-XL · Redis-XL · Rabbit-XL' },
 };
 
 
-/* Ressources sélectionnables dans l'assistant (coûts mensuels simulés) */
+/* Ressources sélectionnables dans l’assistant (tarifs réels HT) */
 const RESOURCE_DEFS = {
-  rancher:  { icon: '🐮', label: 'Projet Rancher',      base: 40, sized: false,
-              desc: 'Projet Kubernetes managé : namespaces, quotas et RBAC.' },
-  harbor:   { icon: '⚓', label: 'Projet Harbor',       base: 25, sized: false,
-              desc: 'Registre d’images privé avec scan de vulnérabilités.' },
-  vm:       { icon: '🖥️', label: 'Machines virtuelles', base: 55, sized: true, qty: 'vmCount',
-              desc: 'Machines virtuelles Linux managées (vSphere).' },
-  postgres: { icon: '🐘', label: 'PostgreSQL',          base: 80, sized: true,
-              desc: 'Base de données relationnelle managée, sauvegardée.' },
-  mongo:    { icon: '🍃', label: 'MongoDB',             base: 90, sized: true,
-              desc: 'Base de données documentaire managée (replica set).' },
-  storage:  { icon: '🗄️', label: 'Stockage objet',      base: 0.10, sized: false, qty: 'storageGb',
-              desc: 'Stockage compatible S3, facturé au Go.' },
+  rancher:    { icon: '🐮', label: 'Projet Rancher (K8s)',     base: 75,   sized: false,
+                desc: 'Projet Kubernetes managé : namespaces, quotas, RBAC. Forfait 75 €/mois.' },
+  harbor:     { icon: '⚓', label: 'Registry Harbor',          base: 1,    sized: false, qty: 'registryGb',
+                desc: 'Registre d’images privé avec scan de vulnérabilités. Facturé 1 €/Go/mois.' },
+  vm:         { icon: '🖥️', label: 'Machines virtuelles',     base: 65,   sized: true, qty: 'vmCount',
+                prices: { S: 65, M: 220, L: 420, XL: 820 },
+                planLabels: { S: 'VM-XS', M: 'VM-M', L: 'VM-L', XL: 'VM-XL' },
+                desc: 'Machines virtuelles Linux managées (VMaaS). Socle d’exploitation inclus.' },
+  postgres:   { icon: '🐘', label: 'PostgreSQL as a Service', base: 60,   sized: true,
+                prices: { S: 60, M: 190, L: 340, XL: 650 },
+                planLabels: { S: 'PG-Dev', M: 'PG-M', L: 'PG-L', XL: 'PG-XL' },
+                desc: 'Base relationnelle managée, sauvegardée quotidiennement. Replica ×2,7.' },
+  mariadb:    { icon: '🗃️', label: 'MariaDB as a Service',    base: 60,   sized: true,
+                prices: { S: 60, M: 190, L: 340, XL: 650 },
+                planLabels: { S: 'Maria-Dev', M: 'Maria-M', L: 'Maria-L', XL: 'Maria-XL' },
+                desc: 'Base MariaDB managée, sauvegardée. Même grille tarifaire que PostgreSQL.' },
+  mongo:      { icon: '🍃', label: 'MongoDB as a Service',    base: 90,   sized: true,
+                prices: { S: 90, M: 320, L: 620, XL: 1200 },
+                planLabels: { S: 'Mongo-Dev', M: 'Mongo-M', L: 'Mongo-L', XL: 'Mongo-XL' },
+                desc: 'Base documentaire managée (replica set × 3). Tarif ×2,7 inclus.' },
+  redis:      { icon: '🔴', label: 'Redis as a Service',      base: 35,   sized: true,
+                prices: { S: 35, M: 110, L: 190, XL: 350 },
+                planLabels: { S: 'Redis-Dev', M: 'Redis-M', L: 'Redis-L', XL: 'Redis-XL' },
+                desc: 'Cache Redis managé. Options : persistance +20 €, haute disponibilité ×2,5.' },
+  rabbitmq:   { icon: '🐰', label: 'RabbitMQ as a Service',   base: 60,   sized: true,
+                prices: { S: 60, M: 190, L: 340, XL: 620 },
+                planLabels: { S: 'Rabbit-Dev', M: 'Rabbit-M', L: 'Rabbit-L', XL: 'Rabbit-XL' },
+                desc: 'Broker de messages managé. Cluster 3 nœuds : tarif ×2,5.' },
+  serverless: { icon: '⚡', label: 'Serverless Containers',   base: 30,   sized: false,
+                desc: 'Conteneurs serverless — 0,10 €/h/vCPU, 0,025 €/Gio/h. Min. 30 €/service/mois.' },
+  wiki:       { icon: '📖', label: 'Wiki as a Service',       base: 120,  sized: false,
+                desc: 'Wiki collaboratif managé (application, base de données, stockage inclus).' },
+  storage:    { icon: '🗄️', label: 'Stockage objet (S3)',     base: 0.10, sized: false, qty: 'storageGb',
+                desc: 'Stockage compatible S3, facturé 0,10 €/Go/mois.' },
 };
 
 /* Catalogue de templates (page « Créer… ») */
@@ -116,12 +138,33 @@ const PROV_STEPS = [
   },
   {
     key: 'db', title: 'Création des bases de données',
-    needs: r => r.resources.postgres || r.resources.mongo,
+    needs: r => r.resources.postgres || r.resources.mariadb || r.resources.mongo,
     logs: r => [
       ['info', 'Provisionnement des instances managées…'],
       ...(r.resources.postgres ? [['', `PostgreSQL 16 « ${r.name}-postgresql » créée · sauvegarde quotidienne`]] : []),
-      ...(r.resources.mongo ? [['', `MongoDB 7 « ${r.name}-mongodb » créée (replica set x3)`]] : []),
+      ...(r.resources.mariadb  ? [['', `MariaDB 10 « ${r.name}-mariadb » créée · sauvegarde quotidienne`]] : []),
+      ...(r.resources.mongo    ? [['', `MongoDB 7 « ${r.name}-mongodb » créée (replica set × 3)`]] : []),
       ['ok', 'Comptes applicatifs générés et stockés dans le coffre'],
+    ],
+  },
+  {
+    key: 'messaging', title: 'Déploiement des services de messagerie et cache',
+    needs: r => r.resources.redis || r.resources.rabbitmq,
+    logs: r => [
+      ['info', 'Déploiement des brokers et caches…'],
+      ...(r.resources.redis    ? [['', `Redis « ${r.name}-redis » déployé · persistance configurée`]] : []),
+      ...(r.resources.rabbitmq ? [['', `RabbitMQ « ${r.name}-rabbitmq » déployé · vhosts et policies appliqués`]] : []),
+      ['ok', 'Services de messagerie opérationnels'],
+    ],
+  },
+  {
+    key: 'services', title: 'Déploiement des services complémentaires',
+    needs: r => r.resources.serverless || r.resources.wiki,
+    logs: r => [
+      ['info', 'Activation des services managés…'],
+      ...(r.resources.serverless ? [['', `Namespace serverless « ${r.name} » provisionné · autoscaling activé`]] : []),
+      ...(r.resources.wiki       ? [['', `Wiki « ${r.name}-wiki » créé · base et stockage initialisés`]] : []),
+      ['ok', 'Services complémentaires disponibles'],
     ],
   },
   {
@@ -293,17 +336,46 @@ function logActivity(icon, text) {
   state.activity.unshift({ ts: now(), icon, text });
 }
 
-/* Coût mensuel estimé d'une demande (modèle simplifié) */
+/* Coût mensuel estimé d'une demande (tarifs réels HT) */
 function computeCost(req) {
-  const mult = SIZES[req.size]?.mult ?? 1;
+  const size = req.size ?? 'S';
   const r = req.resources;
   const lines = [];
-  if (r.rancher) lines.push(['Projet Rancher', RESOURCE_DEFS.rancher.base]);
-  if (r.harbor) lines.push(['Projet Harbor', RESOURCE_DEFS.harbor.base]);
-  if (r.vm) lines.push([`Machines virtuelles × ${r.vmCount}`, RESOURCE_DEFS.vm.base * r.vmCount * mult]);
-  if (r.postgres) lines.push(['PostgreSQL managé', RESOURCE_DEFS.postgres.base * mult]);
-  if (r.mongo) lines.push(['MongoDB managé', RESOURCE_DEFS.mongo.base * mult]);
-  if (r.storage) lines.push([`Stockage objet (${r.storageGb} Go)`, RESOURCE_DEFS.storage.base * r.storageGb]);
+  if (r.rancher) {
+    lines.push(['Projet Rancher (K8s)', RESOURCE_DEFS.rancher.base]);
+  }
+  if (r.harbor) {
+    const gb = r.registryGb ?? 10;
+    lines.push([`Registry Harbor (${gb} Go)`, gb]);
+  }
+  if (r.vm) {
+    const def = RESOURCE_DEFS.vm;
+    const plan = def.planLabels[size] ?? 'VM-XS';
+    lines.push([`VM ${plan} × ${r.vmCount}`, (def.prices[size] ?? def.base) * r.vmCount]);
+  }
+  if (r.postgres) {
+    const def = RESOURCE_DEFS.postgres;
+    lines.push([`PostgreSQL — ${def.planLabels[size] ?? 'PG-Dev'}`, def.prices[size] ?? def.base]);
+  }
+  if (r.mariadb) {
+    const def = RESOURCE_DEFS.mariadb;
+    lines.push([`MariaDB — ${def.planLabels[size] ?? 'Maria-Dev'}`, def.prices[size] ?? def.base]);
+  }
+  if (r.mongo) {
+    const def = RESOURCE_DEFS.mongo;
+    lines.push([`MongoDB — ${def.planLabels[size] ?? 'Mongo-Dev'}`, def.prices[size] ?? def.base]);
+  }
+  if (r.redis) {
+    const def = RESOURCE_DEFS.redis;
+    lines.push([`Redis — ${def.planLabels[size] ?? 'Redis-Dev'}`, def.prices[size] ?? def.base]);
+  }
+  if (r.rabbitmq) {
+    const def = RESOURCE_DEFS.rabbitmq;
+    lines.push([`RabbitMQ — ${def.planLabels[size] ?? 'Rabbit-Dev'}`, def.prices[size] ?? def.base]);
+  }
+  if (r.serverless) lines.push(['Serverless Containers (min.)', RESOURCE_DEFS.serverless.base]);
+  if (r.wiki)       lines.push(['Wiki as a Service', RESOURCE_DEFS.wiki.base]);
+  if (r.storage)    lines.push([`Stockage objet (${r.storageGb} Go)`, RESOURCE_DEFS.storage.base * r.storageGb]);
   const total = Math.round(lines.reduce((s, l) => s + l[1], 0));
   return { lines, total };
 }
@@ -312,12 +384,17 @@ function computeCost(req) {
 function resourceSummary(req) {
   const r = req.resources;
   const out = [];
-  if (r.rancher) out.push('Projet Rancher');
-  if (r.harbor) out.push('Projet Harbor');
-  if (r.vm) out.push(`${r.vmCount} VM`);
-  if (r.postgres) out.push('PostgreSQL');
-  if (r.mongo) out.push('MongoDB');
-  if (r.storage) out.push(`Stockage ${r.storageGb} Go`);
+  if (r.rancher)    out.push('Projet Rancher');
+  if (r.harbor)     out.push(`Registry Harbor (${r.registryGb ?? 10} Go)`);
+  if (r.vm)         out.push(`${r.vmCount} VM`);
+  if (r.postgres)   out.push('PostgreSQL');
+  if (r.mariadb)    out.push('MariaDB');
+  if (r.mongo)      out.push('MongoDB');
+  if (r.redis)      out.push('Redis');
+  if (r.rabbitmq)   out.push('RabbitMQ');
+  if (r.serverless) out.push('Serverless');
+  if (r.wiki)       out.push('Wiki');
+  if (r.storage)    out.push(`Stockage ${r.storageGb} Go`);
   return out;
 }
 
@@ -583,7 +660,14 @@ function newWizard() {
     data: {
       name: '', team: TEAMS[0], description: '',
       env: 'dev', size: 'M',
-      resources: { rancher: true, harbor: false, vm: false, vmCount: 2, postgres: false, mongo: false, storage: false, storageGb: 100 },
+      resources: {
+        rancher: true, harbor: false, registryGb: 10,
+        vm: false, vmCount: 2,
+        postgres: false, mariadb: false, mongo: false,
+        redis: false, rabbitmq: false,
+        serverless: false, wiki: false,
+        storage: false, storageGb: 100,
+      },
     },
   };
 }
@@ -679,12 +763,16 @@ function wizStep3() {
   const r = ui.wizard.data.resources;
   const card = (key, extra = '') => {
     const def = RESOURCE_DEFS[key];
+    let priceStr;
+    if (key === 'storage')    priceStr = '0,10 € / Go / mois';
+    else if (key === 'harbor') priceStr = '1 € / Go / mois';
+    else                       priceStr = `dès ${euro(def.base)} / mois`;
     return `
       <div class="pick-card ${r[key] ? 'is-selected' : ''}" data-action="wiz-res" data-arg="${key}">
         <div class="pick-card__icon">${def.icon}</div>
         <div class="pick-card__title">${def.label}</div>
         <div class="pick-card__desc">${def.desc}</div>
-        <div class="pick-card__price">${key === 'storage' ? '0,10 € / Go / mois' : `dès ${euro(def.base)} / mois`}</div>
+        <div class="pick-card__price">${priceStr}</div>
         ${extra}
       </div>`;
   };
@@ -693,14 +781,23 @@ function wizStep3() {
       <label class="field-label">Ressources souhaitées <span class="required">*</span> <span class="muted">(au moins une)</span></label>
       <div class="pick-grid">
         ${card('rancher')}
-        ${card('harbor')}
+        ${card('harbor', `
+          <div class="pick-card__qty" data-stop>
+            <span>Volume (Go) :</span>
+            <input type="number" min="1" max="500" value="${r.registryGb}" data-input="wiz-registrygb">
+          </div>`)}
         ${card('vm', `
           <div class="pick-card__qty" data-stop>
             <span>Nombre :</span>
             <input type="number" min="1" max="6" value="${r.vmCount}" data-input="wiz-vmcount">
           </div>`)}
         ${card('postgres')}
+        ${card('mariadb')}
         ${card('mongo')}
+        ${card('redis')}
+        ${card('rabbitmq')}
+        ${card('serverless')}
+        ${card('wiki')}
         ${card('storage', `
           <div class="pick-card__qty" data-stop>
             <span>Volume (Go) :</span>
@@ -722,7 +819,6 @@ function wizStep4() {
           <div class="pick-card ${d.size === k ? 'is-selected' : ''}" data-action="wiz-size" data-arg="${k}">
             <div class="pick-card__title">${s.label}</div>
             <div class="pick-card__desc">${s.specs}</div>
-            <div class="pick-card__price">coefficient ×${String(s.mult).replace('.', ',')}</div>
           </div>`).join('')}
       </div>
     </div>
@@ -785,7 +881,7 @@ function validateWizardStep() {
   }
   if (w.step === 2) {
     const r = d.resources;
-    if (!r.rancher && !r.harbor && !r.vm && !r.postgres && !r.mongo && !r.storage)
+    if (!r.rancher && !r.harbor && !r.vm && !r.postgres && !r.mariadb && !r.mongo && !r.redis && !r.rabbitmq && !r.serverless && !r.wiki && !r.storage)
       return 'Sélectionnez au moins une ressource.';
   }
   return '';
@@ -1001,14 +1097,40 @@ function adminRequestPage() {
 
   /* Lignes du tableau des ressources demandées */
   const res = r.resources;
-  const mult = SIZES[r.size].mult;
+  const sz = r.size ?? 'S';
   const resRows = [];
-  if (res.rancher) resRows.push(['🐮 Projet Rancher', '1', euro(RESOURCE_DEFS.rancher.base)]);
-  if (res.harbor) resRows.push(['⚓ Projet Harbor', '1', euro(RESOURCE_DEFS.harbor.base)]);
-  if (res.vm) resRows.push([`🖥️ Machine virtuelle (${SIZES[r.size].specs})`, String(res.vmCount), euro(Math.round(RESOURCE_DEFS.vm.base * mult * res.vmCount))]);
-  if (res.postgres) resRows.push(['🐘 PostgreSQL managé', '1', euro(Math.round(RESOURCE_DEFS.postgres.base * mult))]);
-  if (res.mongo) resRows.push(['🍃 MongoDB managé', '1', euro(Math.round(RESOURCE_DEFS.mongo.base * mult))]);
-  if (res.storage) resRows.push([`🗄️ Stockage objet`, `${res.storageGb} Go`, euro(Math.round(RESOURCE_DEFS.storage.base * res.storageGb))]);
+  if (res.rancher) resRows.push(['🐮 Projet Rancher (K8s)', '1', euro(RESOURCE_DEFS.rancher.base)]);
+  if (res.harbor) {
+    const gb = res.registryGb ?? 10;
+    resRows.push(['⚓ Registry Harbor', `${gb} Go`, euro(gb)]);
+  }
+  if (res.vm) {
+    const def = RESOURCE_DEFS.vm;
+    resRows.push([`🖥️ VM ${def.planLabels[sz] ?? 'VM-XS'}`, String(res.vmCount), euro((def.prices[sz] ?? def.base) * res.vmCount)]);
+  }
+  if (res.postgres) {
+    const def = RESOURCE_DEFS.postgres;
+    resRows.push([`🐘 PostgreSQL — ${def.planLabels[sz] ?? 'PG-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+  }
+  if (res.mariadb) {
+    const def = RESOURCE_DEFS.mariadb;
+    resRows.push([`🗃️ MariaDB — ${def.planLabels[sz] ?? 'Maria-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+  }
+  if (res.mongo) {
+    const def = RESOURCE_DEFS.mongo;
+    resRows.push([`🍃 MongoDB — ${def.planLabels[sz] ?? 'Mongo-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+  }
+  if (res.redis) {
+    const def = RESOURCE_DEFS.redis;
+    resRows.push([`🔴 Redis — ${def.planLabels[sz] ?? 'Redis-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+  }
+  if (res.rabbitmq) {
+    const def = RESOURCE_DEFS.rabbitmq;
+    resRows.push([`🐰 RabbitMQ — ${def.planLabels[sz] ?? 'Rabbit-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
+  }
+  if (res.serverless) resRows.push(['⚡ Serverless Containers', '1 service', euro(RESOURCE_DEFS.serverless.base)]);
+  if (res.wiki)       resRows.push(['📖 Wiki as a Service', '1', euro(RESOURCE_DEFS.wiki.base)]);
+  if (res.storage)    resRows.push([`🗄️ Stockage objet`, `${res.storageGb} Go`, euro(Math.round(RESOURCE_DEFS.storage.base * res.storageGb))]);
 
   return `
     ${pageHeader('admin', {
@@ -1272,13 +1394,23 @@ function createEntitiesFromRequest(r) {
   if (r.resources.rancher) { add({ name: `${r.name}-rancher`, kind: 'Resource', type: 'rancher-project', tags: ['kubernetes'],
         description: `Projet Rancher (namespaces et quotas) du projet ${r.name}.` }); count++; }
   if (r.resources.harbor) { add({ name: `${r.name}-registry`, kind: 'Resource', type: 'harbor-project', tags: ['harbor', 'docker'],
-        description: `Registre d'images Harbor du projet ${r.name}.` }); count++; }
+        description: `Registre d'images Harbor du projet ${r.name} (${r.resources.registryGb ?? 10} Go).` }); count++; }
   if (r.resources.vm) { add({ name: `${r.name}-vms`, kind: 'Resource', type: 'virtual-machine', tags: [`x${r.resources.vmCount}`, r.size.toLowerCase()],
-        description: `${r.resources.vmCount} machine(s) virtuelle(s) — ${SIZES[r.size].specs}.` }); count++; }
-  if (r.resources.postgres) { add({ name: `${r.name}-postgresql`, kind: 'Resource', type: 'database', tags: ['postgresql'],
+        description: `${r.resources.vmCount} machine(s) virtuelle(s) plan ${RESOURCE_DEFS.vm.planLabels[r.size] ?? 'VM-XS'}.` }); count++; }
+  if (r.resources.postgres) { add({ name: `${r.name}-postgresql`, kind: 'Resource', type: 'database', tags: ['postgresql', RESOURCE_DEFS.postgres.planLabels[r.size]?.toLowerCase() ?? 'pg-dev'],
         description: `Base PostgreSQL managée du projet ${r.name}.` }); count++; }
-  if (r.resources.mongo) { add({ name: `${r.name}-mongodb`, kind: 'Resource', type: 'database', tags: ['mongodb'],
+  if (r.resources.mariadb) { add({ name: `${r.name}-mariadb`, kind: 'Resource', type: 'database', tags: ['mariadb', RESOURCE_DEFS.mariadb.planLabels[r.size]?.toLowerCase() ?? 'maria-dev'],
+        description: `Base MariaDB managée du projet ${r.name}.` }); count++; }
+  if (r.resources.mongo) { add({ name: `${r.name}-mongodb`, kind: 'Resource', type: 'database', tags: ['mongodb', RESOURCE_DEFS.mongo.planLabels[r.size]?.toLowerCase() ?? 'mongo-dev'],
         description: `Base MongoDB managée du projet ${r.name}.` }); count++; }
+  if (r.resources.redis) { add({ name: `${r.name}-redis`, kind: 'Resource', type: 'cache', tags: ['redis', RESOURCE_DEFS.redis.planLabels[r.size]?.toLowerCase() ?? 'redis-dev'],
+        description: `Cache Redis managé du projet ${r.name}.` }); count++; }
+  if (r.resources.rabbitmq) { add({ name: `${r.name}-rabbitmq`, kind: 'Resource', type: 'message-broker', tags: ['rabbitmq', RESOURCE_DEFS.rabbitmq.planLabels[r.size]?.toLowerCase() ?? 'rabbit-dev'],
+        description: `Broker RabbitMQ managé du projet ${r.name}.` }); count++; }
+  if (r.resources.serverless) { add({ name: `${r.name}-serverless`, kind: 'Resource', type: 'serverless', tags: ['serverless', 'containers'],
+        description: `Namespace serverless Containers du projet ${r.name}.` }); count++; }
+  if (r.resources.wiki) { add({ name: `${r.name}-wiki`, kind: 'Resource', type: 'wiki', tags: ['wiki'],
+        description: `Wiki as a Service du projet ${r.name}.` }); count++; }
   if (r.resources.storage) { add({ name: `${r.name}-storage`, kind: 'Resource', type: 'object-store', tags: [`${r.resources.storageGb}-go`],
         description: `Stockage objet (${r.resources.storageGb} Go) du projet ${r.name}.` }); count++; }
   return count;
@@ -1399,8 +1531,9 @@ $('#user-main').addEventListener('input', e => {
     case 'wiz-name': if (w) w.data.name = e.target.value; break;
     case 'wiz-team': if (w) w.data.team = e.target.value; break;
     case 'wiz-desc': if (w) w.data.description = e.target.value; break;
-    case 'wiz-vmcount': if (w) w.data.resources.vmCount = Math.max(1, Math.min(6, parseInt(e.target.value, 10) || 1)); break;
-    case 'wiz-storagegb': if (w) w.data.resources.storageGb = Math.max(10, Math.min(2000, parseInt(e.target.value, 10) || 10)); break;
+    case 'wiz-vmcount':    if (w) w.data.resources.vmCount    = Math.max(1, Math.min(6,    parseInt(e.target.value, 10) || 1));   break;
+    case 'wiz-registrygb': if (w) w.data.resources.registryGb = Math.max(1, Math.min(500,  parseInt(e.target.value, 10) || 10));  break;
+    case 'wiz-storagegb':  if (w) w.data.resources.storageGb  = Math.max(10, Math.min(2000, parseInt(e.target.value, 10) || 10)); break;
     case 'catalog-search': {
       // Re-rendu du tableau filtré + restauration du focus dans le champ
       ui.user.search = e.target.value;
