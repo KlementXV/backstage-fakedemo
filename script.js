@@ -783,73 +783,52 @@ function wizStep2() {
     </div>`;
 }
 
-/* Étape 3 : sélection des ressources */
+/* Ordre d'affichage des ressources (sélection à l'étape 3, configuration à l'étape 4) */
+const RES_ORDER = ['rancher', 'harbor', 'vm', 'postgres', 'mariadb', 'mongo', 'redis', 'rabbitmq', 'serverless', 'wiki'];
+
+/* Étape 3 : sélection des ressources (choix seul, configuration à l'étape suivante) */
 function wizStep3() {
   const r = ui.wizard.data.resources;
-  const card = (key, extra = '') => {
+  const card = key => {
     const def = RESOURCE_DEFS[key];
-    let priceStr;
-    if (key === 'harbor')      priceStr = '1 € / Go / mois';
-    else                       priceStr = `dès ${euro(def.base)} / mois`;
+    const priceStr = key === 'harbor' ? '1 € / Go / mois' : `dès ${euro(def.base)} / mois`;
     return `
       <div class="pick-card ${r[key] ? 'is-selected' : ''}" data-action="wiz-res" data-arg="${key}">
         <div class="pick-card__icon">${def.icon}</div>
         <div class="pick-card__title">${def.label}</div>
         <div class="pick-card__desc">${def.desc}</div>
         <div class="pick-card__price">${priceStr}</div>
-        ${extra}
       </div>`;
   };
   return `
     <div class="form-row">
-      <label class="field-label">Ressources souhaitées <span class="required">*</span> <span class="muted">(au moins une)</span></label>
+      <label class="field-label">Ressources souhaitées <span class="required">*</span> <span class="muted">(au moins une — cliquez pour sélectionner)</span></label>
+      <div class="banner banner--info">ℹ️ <span>Choisissez simplement les ressources à provisionner. Vous renseignerez leurs détails (nom, volume, dimensionnement…) à l’étape <strong>Dimensionnement</strong>.</span></div>
       <div class="pick-grid">
-        ${card('rancher', `
-          <div class="pick-card__qty" data-stop>
-            <span>Nom :</span>
-            <input type="text" value="${esc(r.rancherName)}" placeholder="nom du projet Rancher" data-input="wiz-ranchername">
-          </div>`)}
-        ${card('harbor', `
-          <div class="pick-card__qty" data-stop>
-            <span>Volume (Go) :</span>
-            <input type="number" min="1" max="500" value="${r.registryGb}" data-input="wiz-registrygb">
-          </div>`)}
-        ${card('vm', `
-          <div class="pick-card__qty" data-stop>
-            <span>Nombre :</span>
-            <input type="number" min="1" max="6" value="${r.vmCount}" data-input="wiz-vmcount">
-          </div>`)}
-        ${card('postgres')}
-        ${card('mariadb')}
-        ${card('mongo')}
-        ${card('redis')}
-        ${card('rabbitmq')}
-        ${card('serverless', `
-          <div class="pick-card__qty" data-stop>
-            <span>Image :</span>
-            <input type="text" value="${esc(r.serverlessImage)}" placeholder="harbor.exemple.fr/projet/image:tag" data-input="wiz-serverlessimage">
-          </div>`)}
-        ${card('wiki', `
-          <div class="pick-card__qty" data-stop>
-            <span>Nom :</span>
-            <input type="text" value="${esc(r.wikiName)}" placeholder="nom du wiki" data-input="wiz-wikiname">
-          </div>`)}
+        ${RES_ORDER.map(card).join('')}
       </div>
     </div>`;
 }
 
-/* Étape 4 : dimensionnement + estimation de coût */
+/* Étape 4 : configuration et dimensionnement de chaque ressource + estimation de coût */
 function wizStep4() {
   const d = ui.wizard.data;
   const r = d.resources;
   const rs = d.resourceSizes;
   const cost = computeCost(d);
 
+  const selected = RES_ORDER.filter(k => r[k]);
   const selectedSized = SIZED_KEYS.filter(k => r[k]);
 
-  /* Le gabarit global ne doit refléter que ce qui est réellement appliqué :
-     mis en surbrillance si toutes les ressources partagent la même taille,
-     aucun sinon, pour ne pas contredire les prix affichés par ressource. */
+  /* Si rien n'a été choisi à l'étape précédente, on invite à y retourner */
+  if (!selected.length) {
+    return `
+      ${emptyState('🧩', 'Aucune ressource à configurer',
+        'Revenez à l’étape « Ressources » pour sélectionner au moins une ressource à provisionner.')}`;
+  }
+
+  /* Le gabarit global ne reflète que ce qui est réellement appliqué :
+     une taille si toutes les ressources dimensionnées la partagent, null sinon. */
   const effectiveSize = effectiveSizeOf(d);
 
   const sizeBtns = (currentSize, actionArg) =>
@@ -861,28 +840,69 @@ function wizStep4() {
   const usesCustom = effectiveSize === 'custom' || selectedSized.some(k =>
     k === 'vm' ? d.vmSizes.some(s => s === 'custom') : (rs[k] ?? d.size) === 'custom');
 
-  const customRows = selectedSized.map(key => {
+  /* Ligne de configuration pour une ressource non dimensionnée à champ texte/nombre */
+  const fieldRow = (key, control, price) => {
     const def = RESOURCE_DEFS[key];
-    if (key === 'vm') {
-      return d.vmSizes.map((sz, i) => `
-        <div class="res-size-row">
-          <div class="res-size-label">${def.icon} ${def.label} <span class="chip chip--sm">#${i + 1}</span></div>
-          <div class="res-size-btns">${sizeBtns(sz, `vm:${i}`)}</div>
-          <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
-        </div>`).join('');
-    }
-    const sz = rs[key] ?? d.size;
     return `
       <div class="res-size-row">
         <div class="res-size-label">${def.icon} ${def.label}</div>
-        <div class="res-size-btns">${sizeBtns(sz, key)}</div>
-        <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
+        <div class="res-config-control">${control}</div>
+        <div class="res-size-price">${price} <small>/mois</small></div>
       </div>`;
+  };
+
+  const configRows = selected.map(key => {
+    const def = RESOURCE_DEFS[key];
+    switch (key) {
+      case 'rancher':
+        return fieldRow('rancher',
+          `<input type="text" class="res-input" value="${esc(r.rancherName)}" placeholder="nom du projet Rancher" data-input="wiz-ranchername">`,
+          euro(def.base));
+      case 'harbor':
+        return fieldRow('harbor',
+          `<input type="number" min="1" max="500" value="${r.registryGb}" data-input="wiz-registrygb"> <span class="muted">Go</span>`,
+          euro(r.registryGb ?? 10));
+      case 'serverless':
+        return fieldRow('serverless',
+          `<input type="text" class="res-input" value="${esc(r.serverlessImage)}" placeholder="harbor.exemple.fr/projet/image:tag" data-input="wiz-serverlessimage">`,
+          euro(def.base));
+      case 'wiki':
+        return fieldRow('wiki',
+          `<input type="text" class="res-input" value="${esc(r.wikiName)}" placeholder="nom du wiki" data-input="wiz-wikiname">`,
+          euro(def.base));
+      case 'vm': {
+        const head = `
+          <div class="res-size-row res-size-row--head">
+            <div class="res-size-label">${def.icon} ${def.label}</div>
+            <div class="res-config-control"><span class="muted">Nombre :</span>
+              <input type="number" min="1" max="6" value="${r.vmCount}" data-input="wiz-vmcount"></div>
+            <div class="res-size-price">${euro(d.vmSizes.reduce((s, sz) => s + sizePrice(def, sz, d.custom), 0))} <small>/mois</small></div>
+          </div>`;
+        const items = d.vmSizes.map((sz, i) => `
+          <div class="res-size-row res-size-row--nested">
+            <div class="res-size-label"><span class="chip chip--sm">#${i + 1}</span></div>
+            <div class="res-size-btns">${sizeBtns(sz, `vm:${i}`)}</div>
+            <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
+          </div>`).join('');
+        return head + items;
+      }
+      default: {
+        // bases de données, cache, broker : boutons de taille
+        const sz = rs[key] ?? d.size;
+        return `
+          <div class="res-size-row">
+            <div class="res-size-label">${def.icon} ${def.label}</div>
+            <div class="res-size-btns">${sizeBtns(sz, key)}</div>
+            <div class="res-size-price">${euro(sizePrice(def, sz, d.custom))} <small>/mois</small></div>
+          </div>`;
+      }
+    }
   }).join('');
 
   return `
+    ${selectedSized.length ? `
     <div class="form-row">
-      <label class="field-label">Gabarit de base <span class="muted">— appliqué à toutes les ressources simultanément</span></label>
+      <label class="field-label">Gabarit de base <span class="muted">— applique la même taille à toutes les ressources dimensionnées</span></label>
       <div class="pick-grid">
         ${Object.entries(SIZES).map(([k, s]) => `
           <div class="pick-card ${effectiveSize === k ? 'is-selected' : ''}" data-action="wiz-size" data-arg="${k}">
@@ -896,22 +916,18 @@ function wizStep4() {
     ${usesCustom ? `
     <div class="form-row">
       <label class="field-label">Spécifications sur mesure <span class="muted">— appliquées aux ressources « Sur mesure »</span></label>
-      <div class="custom-spec" style="display:flex; gap:18px; flex-wrap:wrap;">
-        <label style="display:flex; flex-direction:column; gap:4px; font-size:13px;">vCPU
-          <input type="number" min="1" max="64" value="${d.custom.cpu}" data-input="wiz-cpu"></label>
-        <label style="display:flex; flex-direction:column; gap:4px; font-size:13px;">RAM (Go)
-          <input type="number" min="1" max="256" value="${d.custom.ram}" data-input="wiz-ram"></label>
-        <label style="display:flex; flex-direction:column; gap:4px; font-size:13px;">Stockage (Go)
-          <input type="number" min="1" max="2000" value="${d.custom.storage}" data-input="wiz-customstorage"></label>
+      <div class="custom-spec">
+        <label>vCPU<input type="number" min="1" max="64" value="${d.custom.cpu}" data-input="wiz-cpu"></label>
+        <label>RAM (Go)<input type="number" min="1" max="256" value="${d.custom.ram}" data-input="wiz-ram"></label>
+        <label>Stockage (Go)<input type="number" min="1" max="2000" value="${d.custom.storage}" data-input="wiz-customstorage"></label>
       </div>
       <div class="hint">Tarif simulé : 12 €/vCPU + 6 €/Go de RAM + 0,20 €/Go de stockage, par ressource dimensionnée.</div>
-    </div>` : ''}
+    </div>` : ''}` : ''}
 
-    ${selectedSized.length ? `
     <div class="form-row">
-      <label class="field-label">Personnalisation par ressource <span class="muted">— affinez chaque ressource indépendamment</span></label>
-      <div class="res-size-grid">${customRows}</div>
-    </div>` : ''}
+      <label class="field-label">Configuration des ressources <span class="muted">— renseignez les détails de chaque ressource sélectionnée</span></label>
+      <div class="res-size-grid">${configRows}</div>
+    </div>
 
     <div class="cost-box">
       <span class="muted">Estimation du coût mensuel</span>
@@ -1661,6 +1677,15 @@ $('#user-main').addEventListener('click', e => {
   }
 });
 
+/* Re-rend le volet utilisateur puis redonne le focus (et le curseur) au champ saisi.
+   Utilisé pour les champs dont la modification change l'affichage (prix, lignes VM…). */
+function rerenderKeepFocus(key, srcInput) {
+  const pos = srcInput.selectionStart;
+  renderUser();
+  const again = document.querySelector(`[data-input="${key}"]`);
+  if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
+}
+
 /* Saisie dans les champs (sans re-rendu, pour ne pas perdre le focus) */
 $('#user-main').addEventListener('input', e => {
   const key = e.target.dataset.input;
@@ -1673,16 +1698,22 @@ $('#user-main').addEventListener('input', e => {
     case 'wiz-ranchername':    if (w) w.data.resources.rancherName = e.target.value; break;
     case 'wiz-serverlessimage': if (w) w.data.resources.serverlessImage = e.target.value; break;
     case 'wiz-wikiname':       if (w) w.data.resources.wikiName = e.target.value; break;
-    case 'wiz-vmcount':
-      if (w) {
-        const count = Math.max(1, Math.min(6, parseInt(e.target.value, 10) || 1));
-        w.data.resources.vmCount = count;
-        const fillSize = w.data.vmSizes[0] ?? w.data.size;
-        while (w.data.vmSizes.length < count) w.data.vmSizes.push(fillSize);
-        w.data.vmSizes = w.data.vmSizes.slice(0, count);
-      }
+    case 'wiz-vmcount': {
+      if (!w) break;
+      const count = Math.max(1, Math.min(6, parseInt(e.target.value, 10) || 1));
+      w.data.resources.vmCount = count;
+      const fillSize = w.data.vmSizes[0] ?? w.data.size;
+      while (w.data.vmSizes.length < count) w.data.vmSizes.push(fillSize);
+      w.data.vmSizes = w.data.vmSizes.slice(0, count);
+      rerenderKeepFocus(key, e.target);
       break;
-    case 'wiz-registrygb': if (w) w.data.resources.registryGb = Math.max(1, Math.min(500,  parseInt(e.target.value, 10) || 10));  break;
+    }
+    case 'wiz-registrygb': {
+      if (!w) break;
+      w.data.resources.registryGb = Math.max(1, Math.min(500, parseInt(e.target.value, 10) || 10));
+      rerenderKeepFocus(key, e.target);
+      break;
+    }
     case 'wiz-cpu':
     case 'wiz-ram':
     case 'wiz-customstorage': {
@@ -1690,11 +1721,7 @@ $('#user-main').addEventListener('input', e => {
       const field = key === 'wiz-cpu' ? 'cpu' : key === 'wiz-ram' ? 'ram' : 'storage';
       const max = field === 'cpu' ? 64 : field === 'ram' ? 256 : 2000;
       w.data.custom[field] = Math.max(1, Math.min(max, parseInt(e.target.value, 10) || 1));
-      // Re-rendu pour mettre à jour l'estimation, avec restauration du focus
-      const pos = e.target.selectionStart;
-      renderUser();
-      const again = document.querySelector(`[data-input="${key}"]`);
-      if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch (_) {} }
+      rerenderKeepFocus(key, e.target);
       break;
     }
     case 'catalog-search': {

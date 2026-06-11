@@ -850,6 +850,39 @@ table.bs-table {
 .res-size-price { font-size: 13px; font-weight: 700; color: var(--bs-primary); min-width: 86px; text-align: right; }
 .res-size-price small { font-weight: 400; color: var(--bs-text-secondary); }
 
+/* Contrôles de configuration par ressource (étape 4) */
+.res-config-control { display: flex; align-items: center; gap: 8px; }
+.res-config-control input[type="number"] {
+  width: 70px; padding: 5px 9px;
+  border: 1px solid #bdbdbd; border-radius: var(--bs-radius);
+  font-family: inherit; font-size: 12.5px;
+}
+.res-input {
+  width: 280px; max-width: 46vw; padding: 6px 11px;
+  border: 1px solid #bdbdbd; border-radius: var(--bs-radius);
+  font-family: inherit; font-size: 12.5px;
+}
+.res-config-control input:focus, .res-input:focus,
+.custom-spec input:focus {
+  outline: none; border-color: var(--bs-primary);
+  box-shadow: 0 0 0 2px rgba(45, 116, 217, 0.18);
+}
+.res-size-row--head { background: #eef3fb; border-color: #d2e0f4; }
+.res-size-row--nested { margin-left: 24px; background: #fff; }
+.res-size-row--nested .res-size-label { flex: 0 0 auto; }
+
+/* Saisie « sur mesure » (vCPU / RAM / stockage) */
+.custom-spec { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 8px; }
+.custom-spec label {
+  display: flex; flex-direction: column; gap: 5px;
+  font-size: 12px; font-weight: 600; color: var(--bs-text-secondary);
+}
+.custom-spec input {
+  width: 120px; padding: 6px 10px;
+  border: 1px solid #bdbdbd; border-radius: var(--bs-radius);
+  font-family: inherit; font-size: 13px; font-weight: 400; color: var(--bs-text);
+}
+
 .size-btn {
   padding: 4px 10px;
   border: 1.5px solid var(--bs-border);
