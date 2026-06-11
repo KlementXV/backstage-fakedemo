@@ -669,9 +669,9 @@ function newWizard() {
     sentRequestId: null,
     data: {
       name: '', team: TEAMS[0], description: '',
-      env: 'dev', size: 'M',
-      resourceSizes: { vm: 'M', postgres: 'M', mariadb: 'M', mongo: 'M', redis: 'M', rabbitmq: 'M' },
-      vmSizes: ['M', 'M'],
+      env: 'dev', size: 'S',
+      resourceSizes: { vm: 'S', postgres: 'S', mariadb: 'S', mongo: 'S', redis: 'S', rabbitmq: 'S' },
+      vmSizes: ['S', 'S'],
       resources: {
         rancher: true, harbor: false, registryGb: 10,
         vm: false, vmCount: 2,
@@ -826,8 +826,12 @@ function wizStep4() {
   const rs = d.resourceSizes;
   const cost = computeCost(d);
 
-  const SIZED_KEYS = ['vm', 'postgres', 'mariadb', 'mongo', 'redis', 'rabbitmq'];
   const selectedSized = SIZED_KEYS.filter(k => r[k]);
+
+  /* Le gabarit global ne doit refléter que ce qui est réellement appliqué :
+     mis en surbrillance si toutes les ressources partagent la même taille,
+     aucun sinon, pour ne pas contredire les prix affichés par ressource. */
+  const effectiveSize = effectiveSizeOf(d);
 
   const sizeBtns = (currentSize, actionArg) =>
     Object.keys(SIZES).map(sz =>
@@ -858,11 +862,12 @@ function wizStep4() {
       <label class="field-label">Gabarit de base <span class="muted">— appliqué à toutes les ressources simultanément</span></label>
       <div class="pick-grid">
         ${Object.entries(SIZES).map(([k, s]) => `
-          <div class="pick-card ${d.size === k ? 'is-selected' : ''}" data-action="wiz-size" data-arg="${k}">
+          <div class="pick-card ${effectiveSize === k ? 'is-selected' : ''}" data-action="wiz-size" data-arg="${k}">
             <div class="pick-card__title">${s.label}</div>
             <div class="pick-card__desc">${s.specs}</div>
           </div>`).join('')}
       </div>
+      ${effectiveSize === null ? '<div class="hint">Tailles personnalisées par ressource — aucun gabarit global unique. Choisir un gabarit réappliquera la même taille à toutes les ressources.</div>' : ''}
     </div>
 
     ${selectedSized.length ? `
@@ -889,6 +894,19 @@ function isCustomSized(d) {
   return false;
 }
 
+/* Taille effectivement appliquée aux ressources dimensionnées :
+   - une clé de taille (S/M/L/XL) si toutes partagent la même,
+   - null si les tailles sont hétérogènes (personnalisation),
+   - le gabarit global si aucune ressource dimensionnée n'est sélectionnée. */
+const SIZED_KEYS = ['vm', 'postgres', 'mariadb', 'mongo', 'redis', 'rabbitmq'];
+function effectiveSizeOf(d) {
+  const rs = d.resourceSizes ?? {};
+  const applied = SIZED_KEYS.filter(k => d.resources[k])
+    .flatMap(k => k === 'vm' ? (d.vmSizes ?? []) : [rs[k] ?? d.size]);
+  if (!applied.length) return d.size;
+  return applied.every(s => s === applied[0]) ? applied[0] : null;
+}
+
 /* Étape 5 : résumé avant envoi */
 function wizStep5() {
   const d = ui.wizard.data;
@@ -899,7 +917,9 @@ function wizStep5() {
       <div><span class="label">Nom du projet</span><span class="value mono">${esc(d.name)}</span></div>
       <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
       <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[d.env].icon} ${ENVIRONMENTS[d.env].label}</span></div>
-      <div><span class="label">Gabarit</span><span class="value">${SIZES[d.size].label}${isCustomSized(d) ? ' <span class="chip chip--info">personnalisé</span>' : ''}</span></div>
+      <div><span class="label">Gabarit</span><span class="value">${effectiveSizeOf(d)
+        ? `${SIZES[effectiveSizeOf(d)].label}${isCustomSized(d) ? ' <span class="chip chip--info">personnalisé</span>' : ''}`
+        : '<span class="chip chip--info">Tailles personnalisées</span>'}</span></div>
       <div class="kv--full"><span class="label">Description</span><span class="value">${esc(d.description) || '—'}</span></div>
       <div class="kv--full"><span class="label">Ressources</span>
         <span class="value">${resourceSummary(d).map(x => `<span class="chip">${esc(x)}</span>`).join('') || '—'}</span></div>
