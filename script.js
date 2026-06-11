@@ -130,11 +130,16 @@ const PROV_STEPS = [
   {
     key: 'vm', title: 'Création des machines virtuelles',
     needs: r => r.resources.vm,
-    logs: r => [
-      ['info', `Clonage du modèle ubuntu-22.04 (${r.resources.vmCount} instance(s), gabarit ${r.size})…`],
-      ['', 'Attribution des adresses IP et enregistrement DNS'],
-      ['ok', `${r.resources.vmCount} VM démarrée(s) · agent de supervision installé`],
-    ],
+    logs: r => {
+      const vmSizes = r.vmSizes ?? Array(r.resources.vmCount).fill(r.size);
+      const def = RESOURCE_DEFS.vm;
+      return [
+        ['info', `Clonage du modèle ubuntu-22.04 (${r.resources.vmCount} instance(s))…`],
+        ...vmSizes.map((sz, i) => ['', `VM #${i + 1} : gabarit ${def.planLabels[sz] ?? sz}`]),
+        ['', 'Attribution des adresses IP et enregistrement DNS'],
+        ['ok', `${r.resources.vmCount} VM démarrée(s) · agent de supervision installé`],
+      ];
+    },
   },
   {
     key: 'db', title: 'Création des bases de données',
@@ -338,8 +343,10 @@ function logActivity(icon, text) {
 
 /* Coût mensuel estimé d'une demande (tarifs réels HT) */
 function computeCost(req) {
-  const size = req.size ?? 'S';
   const r = req.resources;
+  const rs = req.resourceSizes ?? {};
+  const globalSize = req.size ?? 'S';
+  const getSize = key => rs[key] ?? globalSize;
   const lines = [];
   if (r.rancher) {
     lines.push(['Projet Rancher (K8s)', RESOURCE_DEFS.rancher.base]);
@@ -350,28 +357,31 @@ function computeCost(req) {
   }
   if (r.vm) {
     const def = RESOURCE_DEFS.vm;
-    const plan = def.planLabels[size] ?? 'VM-XS';
-    lines.push([`VM ${plan} × ${r.vmCount}`, (def.prices[size] ?? def.base) * r.vmCount]);
+    const vmSizes = req.vmSizes ?? Array(r.vmCount).fill(getSize('vm'));
+    vmSizes.forEach((sz, i) => {
+      const plan = def.planLabels[sz] ?? 'VM-XS';
+      lines.push([`VM ${plan}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, def.prices[sz] ?? def.base]);
+    });
   }
   if (r.postgres) {
-    const def = RESOURCE_DEFS.postgres;
-    lines.push([`PostgreSQL — ${def.planLabels[size] ?? 'PG-Dev'}`, def.prices[size] ?? def.base]);
+    const def = RESOURCE_DEFS.postgres; const sz = getSize('postgres');
+    lines.push([`PostgreSQL — ${def.planLabels[sz] ?? 'PG-Dev'}`, def.prices[sz] ?? def.base]);
   }
   if (r.mariadb) {
-    const def = RESOURCE_DEFS.mariadb;
-    lines.push([`MariaDB — ${def.planLabels[size] ?? 'Maria-Dev'}`, def.prices[size] ?? def.base]);
+    const def = RESOURCE_DEFS.mariadb; const sz = getSize('mariadb');
+    lines.push([`MariaDB — ${def.planLabels[sz] ?? 'Maria-Dev'}`, def.prices[sz] ?? def.base]);
   }
   if (r.mongo) {
-    const def = RESOURCE_DEFS.mongo;
-    lines.push([`MongoDB — ${def.planLabels[size] ?? 'Mongo-Dev'}`, def.prices[size] ?? def.base]);
+    const def = RESOURCE_DEFS.mongo; const sz = getSize('mongo');
+    lines.push([`MongoDB — ${def.planLabels[sz] ?? 'Mongo-Dev'}`, def.prices[sz] ?? def.base]);
   }
   if (r.redis) {
-    const def = RESOURCE_DEFS.redis;
-    lines.push([`Redis — ${def.planLabels[size] ?? 'Redis-Dev'}`, def.prices[size] ?? def.base]);
+    const def = RESOURCE_DEFS.redis; const sz = getSize('redis');
+    lines.push([`Redis — ${def.planLabels[sz] ?? 'Redis-Dev'}`, def.prices[sz] ?? def.base]);
   }
   if (r.rabbitmq) {
-    const def = RESOURCE_DEFS.rabbitmq;
-    lines.push([`RabbitMQ — ${def.planLabels[size] ?? 'Rabbit-Dev'}`, def.prices[size] ?? def.base]);
+    const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
+    lines.push([`RabbitMQ — ${def.planLabels[sz] ?? 'Rabbit-Dev'}`, def.prices[sz] ?? def.base]);
   }
   if (r.serverless) lines.push(['Serverless Containers (min.)', RESOURCE_DEFS.serverless.base]);
   if (r.wiki)       lines.push(['Wiki as a Service', RESOURCE_DEFS.wiki.base]);
@@ -660,6 +670,8 @@ function newWizard() {
     data: {
       name: '', team: TEAMS[0], description: '',
       env: 'dev', size: 'M',
+      resourceSizes: { vm: 'M', postgres: 'M', mariadb: 'M', mongo: 'M', redis: 'M', rabbitmq: 'M' },
+      vmSizes: ['M', 'M'],
       resources: {
         rancher: true, harbor: false, registryGb: 10,
         vm: false, vmCount: 2,
@@ -810,10 +822,40 @@ function wizStep3() {
 /* Étape 4 : dimensionnement + estimation de coût */
 function wizStep4() {
   const d = ui.wizard.data;
+  const r = d.resources;
+  const rs = d.resourceSizes;
   const cost = computeCost(d);
+
+  const SIZED_KEYS = ['vm', 'postgres', 'mariadb', 'mongo', 'redis', 'rabbitmq'];
+  const selectedSized = SIZED_KEYS.filter(k => r[k]);
+
+  const sizeBtns = (currentSize, actionArg) =>
+    Object.keys(SIZES).map(sz =>
+      `<button class="size-btn ${currentSize === sz ? 'size-btn--active' : ''}" data-action="wiz-ressize" data-arg="${actionArg}:${sz}">${sz}</button>`
+    ).join('');
+
+  const customRows = selectedSized.map(key => {
+    const def = RESOURCE_DEFS[key];
+    if (key === 'vm') {
+      return d.vmSizes.map((sz, i) => `
+        <div class="res-size-row">
+          <div class="res-size-label">${def.icon} ${def.label} <span class="chip chip--sm">#${i + 1}</span></div>
+          <div class="res-size-btns">${sizeBtns(sz, `vm:${i}`)}</div>
+          <div class="res-size-price">${euro(def.prices[sz] ?? def.base)} <small>/mois</small></div>
+        </div>`).join('');
+    }
+    const sz = rs[key] ?? d.size;
+    return `
+      <div class="res-size-row">
+        <div class="res-size-label">${def.icon} ${def.label}</div>
+        <div class="res-size-btns">${sizeBtns(sz, key)}</div>
+        <div class="res-size-price">${euro(def.prices[sz] ?? def.base)} <small>/mois</small></div>
+      </div>`;
+  }).join('');
+
   return `
     <div class="form-row">
-      <label class="field-label">Taille / niveau de capacité <span class="required">*</span></label>
+      <label class="field-label">Gabarit de base <span class="muted">— appliqué à toutes les ressources simultanément</span></label>
       <div class="pick-grid">
         ${Object.entries(SIZES).map(([k, s]) => `
           <div class="pick-card ${d.size === k ? 'is-selected' : ''}" data-action="wiz-size" data-arg="${k}">
@@ -822,6 +864,13 @@ function wizStep4() {
           </div>`).join('')}
       </div>
     </div>
+
+    ${selectedSized.length ? `
+    <div class="form-row">
+      <label class="field-label">Personnalisation par ressource <span class="muted">— affinez chaque ressource indépendamment</span></label>
+      <div class="res-size-grid">${customRows}</div>
+    </div>` : ''}
+
     <div class="cost-box">
       <span class="muted">Estimation du coût mensuel</span>
       <div class="cost-box__total">${euro(cost.total)} <small>/ mois (HT, simulé)</small></div>
@@ -830,6 +879,14 @@ function wizStep4() {
           || '<li><span class="muted">Aucune ressource sélectionnée</span></li>'}
       </ul>
     </div>`;
+}
+
+/* Vérifie si des tailles per-ressource diffèrent du gabarit global */
+function isCustomSized(d) {
+  const rs = d.resourceSizes ?? {};
+  if (Object.values(rs).some(sz => sz !== d.size)) return true;
+  if ((d.vmSizes ?? []).some(sz => sz !== d.size)) return true;
+  return false;
 }
 
 /* Étape 5 : résumé avant envoi */
@@ -842,7 +899,7 @@ function wizStep5() {
       <div><span class="label">Nom du projet</span><span class="value mono">${esc(d.name)}</span></div>
       <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
       <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[d.env].icon} ${ENVIRONMENTS[d.env].label}</span></div>
-      <div><span class="label">Taille</span><span class="value">${SIZES[d.size].label}</span></div>
+      <div><span class="label">Gabarit</span><span class="value">${SIZES[d.size].label}${isCustomSized(d) ? ' <span class="chip chip--info">personnalisé</span>' : ''}</span></div>
       <div class="kv--full"><span class="label">Description</span><span class="value">${esc(d.description) || '—'}</span></div>
       <div class="kv--full"><span class="label">Ressources</span>
         <span class="value">${resourceSummary(d).map(x => `<span class="chip">${esc(x)}</span>`).join('') || '—'}</span></div>
@@ -895,6 +952,8 @@ function submitWizard() {
     id, name: d.name.trim(), team: d.team, requester: 'Marie Lambert',
     description: d.description.trim(),
     env: d.env, size: d.size,
+    resourceSizes: { ...d.resourceSizes },
+    vmSizes: [...d.vmSizes],
     resources: { ...d.resources },
     status: 'pending', createdAt: now(),
     comment: '', prov: null,
@@ -1097,7 +1156,9 @@ function adminRequestPage() {
 
   /* Lignes du tableau des ressources demandées */
   const res = r.resources;
-  const sz = r.size ?? 'S';
+  const rs = r.resourceSizes ?? {};
+  const globalSz = r.size ?? 'S';
+  const getSize = key => rs[key] ?? globalSz;
   const resRows = [];
   if (res.rancher) resRows.push(['🐮 Projet Rancher (K8s)', '1', euro(RESOURCE_DEFS.rancher.base)]);
   if (res.harbor) {
@@ -1106,26 +1167,30 @@ function adminRequestPage() {
   }
   if (res.vm) {
     const def = RESOURCE_DEFS.vm;
-    resRows.push([`🖥️ VM ${def.planLabels[sz] ?? 'VM-XS'}`, String(res.vmCount), euro((def.prices[sz] ?? def.base) * res.vmCount)]);
+    const vmSizes = r.vmSizes ?? Array(res.vmCount).fill(getSize('vm'));
+    vmSizes.forEach((sz, i) => {
+      const plan = def.planLabels[sz] ?? 'VM-XS';
+      resRows.push([`🖥️ VM ${plan}${vmSizes.length > 1 ? ` #${i + 1}` : ''}`, '1', euro(def.prices[sz] ?? def.base)]);
+    });
   }
   if (res.postgres) {
-    const def = RESOURCE_DEFS.postgres;
+    const def = RESOURCE_DEFS.postgres; const sz = getSize('postgres');
     resRows.push([`🐘 PostgreSQL — ${def.planLabels[sz] ?? 'PG-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
   }
   if (res.mariadb) {
-    const def = RESOURCE_DEFS.mariadb;
+    const def = RESOURCE_DEFS.mariadb; const sz = getSize('mariadb');
     resRows.push([`🗃️ MariaDB — ${def.planLabels[sz] ?? 'Maria-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
   }
   if (res.mongo) {
-    const def = RESOURCE_DEFS.mongo;
+    const def = RESOURCE_DEFS.mongo; const sz = getSize('mongo');
     resRows.push([`🍃 MongoDB — ${def.planLabels[sz] ?? 'Mongo-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
   }
   if (res.redis) {
-    const def = RESOURCE_DEFS.redis;
+    const def = RESOURCE_DEFS.redis; const sz = getSize('redis');
     resRows.push([`🔴 Redis — ${def.planLabels[sz] ?? 'Redis-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
   }
   if (res.rabbitmq) {
-    const def = RESOURCE_DEFS.rabbitmq;
+    const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
     resRows.push([`🐰 RabbitMQ — ${def.planLabels[sz] ?? 'Rabbit-Dev'}`, '1', euro(def.prices[sz] ?? def.base)]);
   }
   if (res.serverless) resRows.push(['⚡ Serverless Containers', '1 service', euro(RESOURCE_DEFS.serverless.base)]);
@@ -1147,7 +1212,7 @@ function adminRequestPage() {
           <div class="kv-grid">
             <div><span class="label">Projet</span><span class="value mono">${esc(r.name)}</span></div>
             <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</span></div>
-            <div><span class="label">Taille</span><span class="value">${SIZES[r.size].label}</span></div>
+            <div><span class="label">Gabarit</span><span class="value">${SIZES[r.size].label}${isCustomSized(r) ? ' <span class="chip chip--info">personnalisé</span>' : ''}</span></div>
             <div><span class="label">Demandeur</span><span class="value">${esc(r.requester)}</span></div>
             <div class="kv--full"><span class="label">Description</span><span class="value">${esc(r.description) || '—'}</span></div>
           </div>
@@ -1511,7 +1576,26 @@ $('#user-main').addEventListener('click', e => {
       submitWizard();
       break;
     case 'wiz-env': if (w) { w.data.env = arg; renderUser(); } break;
-    case 'wiz-size': if (w) { w.data.size = arg; renderUser(); } break;
+    case 'wiz-size':
+      if (w) {
+        w.data.size = arg;
+        Object.keys(w.data.resourceSizes).forEach(k => { w.data.resourceSizes[k] = arg; });
+        w.data.vmSizes = w.data.vmSizes.map(() => arg);
+        renderUser();
+      }
+      break;
+    case 'wiz-ressize': {
+      if (!w) break;
+      const parts = arg.split(':');
+      if (parts[0] === 'vm') {
+        const idx = parseInt(parts[1], 10);
+        w.data.vmSizes[idx] = parts[2];
+      } else {
+        w.data.resourceSizes[parts[0]] = parts[1];
+      }
+      renderUser();
+      break;
+    }
     case 'wiz-res':
       if (w && e.target.tagName !== 'INPUT' && !e.target.closest('.pick-card__qty')) {
         w.data.resources[arg] = !w.data.resources[arg];
@@ -1531,7 +1615,15 @@ $('#user-main').addEventListener('input', e => {
     case 'wiz-name': if (w) w.data.name = e.target.value; break;
     case 'wiz-team': if (w) w.data.team = e.target.value; break;
     case 'wiz-desc': if (w) w.data.description = e.target.value; break;
-    case 'wiz-vmcount':    if (w) w.data.resources.vmCount    = Math.max(1, Math.min(6,    parseInt(e.target.value, 10) || 1));   break;
+    case 'wiz-vmcount':
+      if (w) {
+        const count = Math.max(1, Math.min(6, parseInt(e.target.value, 10) || 1));
+        w.data.resources.vmCount = count;
+        const fillSize = w.data.vmSizes[0] ?? w.data.size;
+        while (w.data.vmSizes.length < count) w.data.vmSizes.push(fillSize);
+        w.data.vmSizes = w.data.vmSizes.slice(0, count);
+      }
+      break;
     case 'wiz-registrygb': if (w) w.data.resources.registryGb = Math.max(1, Math.min(500,  parseInt(e.target.value, 10) || 10));  break;
     case 'wiz-storagegb':  if (w) w.data.resources.storageGb  = Math.max(10, Math.min(2000, parseInt(e.target.value, 10) || 10)); break;
     case 'catalog-search': {
