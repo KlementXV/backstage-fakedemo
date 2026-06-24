@@ -53,6 +53,20 @@ const NETWORKS = {
   USA: { flag: '🇺🇸', label: 'États-Unis (Ashburn)', desc: 'Datacenter Amériques — données soumises à la localisation US.' },
 };
 
+/* Zones de réseaux cloisonnés accessibles via diode unidirectionnelle */
+const DIODE_NETWORKS = {
+  'diode-prod':    { icon: '🔴', label: 'Diode Production (Zone-A)',    desc: 'Réseau cloisonné de production — flux entrant uniquement.' },
+  'diode-quali':   { icon: '🟠', label: 'Diode Qualification (Zone-B)', desc: 'Réseau cloisonné de qualification — flux entrant uniquement.' },
+  'diode-offline': { icon: '⚫', label: 'Diode Hors-ligne (Zone-C)',    desc: 'Réseau sans connexion externe — haute sécurité.' },
+};
+
+/* Niveaux de classification des données transférées vers les réseaux sous diode */
+const SECURITY_LEVELS = {
+  diffusion_restreinte: { icon: '🟡', label: 'Diffusion Restreinte',   color: '#d97706' },
+  sensible:             { icon: '🟠', label: 'Sensible',               color: '#ea580c' },
+  confidentiel:         { icon: '🔴', label: 'Confidentiel Défense',   color: '#dc2626' },
+};
+
 /* Hyperviseurs disponibles (optionnel — s’applique aux machines virtuelles) */
 const HYPERVISORS = {
   auto:      { icon: '🎛️', label: 'Indifférent — choix de la plateforme' },
@@ -192,6 +206,26 @@ TEMPLATES.push({
   duration: '5 min',
 });
 
+/* Harbor Pull — rapatriement d’image depuis le registre vers un cluster Rancher */
+TEMPLATES.push({
+  id: 'harbor-pull', enabled: true, type: 'Infrastructure', category: 'infra',
+  title: '⚓ Pull image Harbor',
+  desc: 'Demande de rapatriement d’une image depuis le registre Harbor vers un cluster Rancher. Scan Trivy automatique et validation équipe plateforme inclus.',
+  tags: ['harbor', 'docker', 'image', 'pull', 'registry'],
+  owner: 'équipe-plateforme', version: 'v1.2', usageCount: 8, isNew: true,
+  action: 'open-image-wizard', wizardType: 'harbor-pull',
+});
+
+/* Diode Push — transfert d’image vers un réseau cloisonné sous diode unidirectionnelle */
+TEMPLATES.push({
+  id: 'diode-push', enabled: true, type: 'Infrastructure', category: 'infra',
+  title: '🔒 Push vers réseau sous diode',
+  desc: 'Demande de transfert unidirectionnel d’une image Harbor vers un réseau sécurisé sous diode. Scan AV + Trivy, chiffrement AES-256 et validation renforcée.',
+  tags: ['harbor', 'docker', 'diode', 'sécurité', 'push', 'cloisonné'],
+  owner: 'équipe-plateforme', version: 'v1.0', usageCount: 3, isNew: true,
+  action: 'open-image-wizard', wizardType: 'diode-push',
+});
+
 /* Statuts d'une demande */
 const STATUSES = {
   draft:        { label: 'Brouillon',                cls: 'status--draft' },
@@ -288,7 +322,126 @@ const PROV_STEPS = [
       ['ok', `Projet « ${r.name} » prêt à l'emploi 🎉`],
     ],
   },
+]
+/* Étapes de pipeline : rapatriement d\'image Harbor → cluster Rancher */
+const HARBOR_PULL_STEPS = [
+  {
+    key: 'auth', title: 'Authentification Harbor',
+    needs: () => true,
+    logs: r => [
+      ['info', `Connexion au registre Harbor (projet : ${r.harborProject || 'n/a'})…`],
+      ['ok', 'Token JWT obtenu · session établie'],
+    ],
+  },
+  {
+    key: 'scan', title: 'Scan de vulnérabilités Trivy',
+    needs: () => true,
+    logs: r => [
+      ['info', `Analyse de l\'image ${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
+      ['', 'Trivy : 0 CVE critique · 2 CVE mineures (ignorées par policy)'],
+      ['ok', 'Image approuvée par la politique de sécurité'],
+    ],
+  },
+  {
+    key: 'pull', title: 'Pull et re-tagging',
+    needs: () => true,
+    logs: r => [
+      ['info', `docker pull harbor.internal/${r.harborProject || 'n/a'}/${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
+      ['', 'Digest : sha256:a3f8' + Math.random().toString(16).slice(2, 10) + '…'],
+      ['', `Re-tag → registry.${r.targetCluster || 'rancher-prod'}/${r.imageName || 'n/a'}:${r.imageTag || 'latest'}`],
+      ['ok', 'Image disponible dans le registre cible'],
+    ],
+  },
+  {
+    key: 'deploy', title: 'Déploiement dans Rancher',
+    needs: () => true,
+    logs: r => [
+      ['info', `Connexion au cluster « ${r.targetCluster || 'rancher-prod'} »…`],
+      ['', `Namespace cible : ${r.targetNamespace || 'default'}`],
+      ['', 'Mise à jour du tag dans les déploiements concernés…'],
+      ['ok', 'Image déployée · Rolling Update complété'],
+    ],
+  },
+  {
+    key: 'notify', title: 'Notification et audit',
+    needs: () => true,
+    logs: r => [
+      ['', 'Événement consigné dans le registre d\'audit Harbor…'],
+      ['', `Notification envoyée à ${r.team} via Teams`],
+      ['ok', 'Pull terminé — catalogue mis à jour'],
+    ],
+  },
 ];
+
+/* Étapes de pipeline : push via diode unidirectionnelle */
+const DIODE_PUSH_STEPS = [
+  {
+    key: 'preflight', title: 'Pré-vérification sécurité',
+    needs: () => true,
+    logs: r => [
+      ['info', `Classification : ${r.securityLevel || 'sensible'} · Destination : ${r.diodeNetwork || 'diode-prod'}`],
+      ['', 'Vérification de l\'habilitation du demandeur…'],
+      ['ok', 'Habilitation confirmée · Autorisation de transfert accordée'],
+    ],
+  },
+  {
+    key: 'scan', title: 'Scan antiviral et Trivy',
+    needs: () => true,
+    logs: r => [
+      ['info', `Analyse de l\'image ${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
+      ['', 'Trivy : 0 CVE critique · signature vérifiée (Cosign)'],
+      ['', 'Analyse antiviral (ClamAV) : aucune menace détectée'],
+      ['ok', 'Image conforme aux exigences de sécurité'],
+    ],
+  },
+  {
+    key: 'export', title: 'Export et packaging',
+    needs: () => true,
+    logs: r => [
+      ['info', 'Extraction de l\'image en archive OCI…'],
+      ['', `docker save harbor.internal/${r.harborProject || 'n/a'}/${r.imageName || 'n/a'}:${r.imageTag || 'latest'} | gzip`],
+      ['', 'Taille : ' + (Math.floor(Math.random() * 800 + 100)) + ' Mo · Hash SHA-256 calculé'],
+      ['ok', 'Archive signée et chiffrée (AES-256-GCM)'],
+    ],
+  },
+  {
+    key: 'transfer', title: 'Transfert via la diode',
+    needs: () => true,
+    logs: r => [
+      ['info', `Connexion à la diode ${r.diodeNetwork || 'diode-prod'} (flux unidirectionnel)…`],
+      ['', `Chemin destination : ${r.targetPath || '/images'}`],
+      ['', 'Transfert en cours (aucun flux retour possible)…'],
+      ['ok', 'Archive reçue côté sécurisé · intégrité vérifiée (SHA-256)'],
+    ],
+  },
+  {
+    key: 'import', title: 'Import côté réseau sécurisé',
+    needs: () => true,
+    logs: r => [
+      ['info', `Chargement de l\'archive sur le système « ${r.targetSystem || 'système-cible'} »…`],
+      ['', 'docker load < image.tar.gz'],
+      ['ok', 'Image disponible dans le registre isolé'],
+    ],
+  },
+  {
+    key: 'cleanup', title: 'Audit et nettoyage',
+    needs: () => true,
+    logs: r => [
+      ['', 'Suppression des archives temporaires…'],
+      ['', 'Enregistrement dans le registre de transferts (compliance)…'],
+      ['', `Notification à ${r.team} — transfert terminé`],
+      ['ok', 'Transfert complété · traçabilité enregistrée'],
+    ],
+  },
+];
+
+function getProvSteps(r) {
+  if (r.requestType === 'harbor-pull') return HARBOR_PULL_STEPS;
+  if (r.requestType === 'diode-push')  return DIODE_PUSH_STEPS;
+  return PROV_STEPS;
+}
+
+;
 
 /* ============================================================
    2. État global + persistance
@@ -468,6 +621,7 @@ function sizePlan(def, sz) {
 
 /* Coût mensuel estimé d'une demande (tarifs réels HT) */
 function computeCost(req) {
+  if (req.requestType === 'harbor-pull' || req.requestType === 'diode-push') return { lines: [], total: 0 };
   const r = req.resources;
   const rs = req.resourceSizes ?? {};
   const globalSize = req.size ?? 'S';
@@ -515,6 +669,10 @@ function computeCost(req) {
 
 /* Liste lisible des ressources d'une demande */
 function resourceSummary(req) {
+  if (req.requestType === 'harbor-pull')
+    return [`⚓ Pull: ${req.imageName || '?'}:${req.imageTag || 'latest'} → ${req.targetCluster || '?'}`];
+  if (req.requestType === 'diode-push')
+    return [`🔒 Diode: ${req.imageName || '?'}:${req.imageTag || 'latest'} → ${(DIODE_NETWORKS[req.diodeNetwork] || {}).label || req.diodeNetwork || '?'}`];
   const r = req.resources;
   const out = [];
   if (r.rancher)    out.push(`Projet Rancher${r.rancherName ? ` (${r.rancherName})` : ''}`);
@@ -543,6 +701,8 @@ function footprintForSize(sz, custom) {
 
 /* Empreinte totale d'une demande : ressources compute (région) + sous-total VM (hyperviseur) */
 function computeFootprint(req) {
+  if (req.requestType === 'harbor-pull' || req.requestType === 'diode-push')
+    return { total: { cpu: 0, ram: 0, storage: 0 }, vm: { cpu: 0, ram: 0, storage: 0 } };
   const r = req.resources || {};
   const rs = req.resourceSizes || {};
   const globalSize = req.size || 'S';
@@ -962,8 +1122,8 @@ function userTemplatesPage() {
         </div>
         <div class="tpl-card__foot">
           <button class="btn ${t.enabled ? 'btn--primary' : 'btn--outline'}"
-                  data-action="${t.enabled ? 'open-wizard' : 'not-included'}"
-                  ${t.resourceKey ? `data-arg="${t.resourceKey}"` : ''}>
+                  data-action="${t.enabled ? (t.action || 'open-wizard') : 'not-included'}"
+                  data-arg="${t.enabled ? (t.wizardType || t.resourceKey || '') : ''}">
             ${t.enabled ? 'Choisir' : 'Bientôt disponible'}
           </button>
         </div>
@@ -1040,9 +1200,338 @@ function newWizard(resourceKey) {
   };
 }
 
+const IMAGE_WIZARD_STEPS = {
+  'harbor-pull': ['Identification', 'Image source', 'Destination', 'Résumé', 'Envoi'],
+  'diode-push':  ['Identification', 'Image source', 'Destination', 'Classification', 'Résumé', 'Envoi'],
+};
+
+function newImageWizard(type) {
+  const meta = {
+    'harbor-pull': { title: '⚓ Pull image Harbor',       subtitle: 'Rapatriement d\'image · équipe-plateforme · v1.2' },
+    'diode-push':  { title: '🔒 Push vers réseau sous diode', subtitle: 'Transfert sécurisé sous diode · équipe-plateforme · v1.0' },
+  };
+  const m = meta[type] || meta['harbor-pull'];
+  return {
+    step: 0, error: '', sentRequestId: null,
+    wizardType: type, resourceKey: null,
+    templateTitle: m.title, templateSubtitle: m.subtitle,
+    data: {
+      team: TEAMS[0], justification: '',
+      harborProject: '', imageName: '', imageTag: 'latest',
+      targetCluster: 'cluster-rancher-prod', targetNamespace: '',
+      diodeNetwork: 'diode-prod', targetSystem: '', targetPath: '/images',
+      securityLevel: 'sensible',
+    },
+  };
+}
+
+function imageWizardPage() {
+  const w = ui.wizard;
+  const steps = IMAGE_WIZARD_STEPS[w.wizardType] || [];
+  const lastStep = steps.length - 1;
+  const summaryStep = steps.length - 2;
+  const isConfirm = w.step === lastStep;
+  const isSummary = w.step === summaryStep;
+
+  const stepper = `
+    <div class="stepper">
+      ${steps.map((label, i) => `
+        <div class="stepper__step ${i === w.step ? 'is-active' : ''} ${i < w.step ? 'is-done' : ''}"
+             ${i < w.step ? `data-action="img-wiz-goto-step" data-arg="${i}"` : ''}>
+          <div class="stepper__num">${i < w.step ? '✓' : i + 1}</div>
+          <div class="stepper__label">${label}</div>
+        </div>`).join('')}
+    </div>`;
+
+  const pullFns = [imgWizStepId, imgWizStepImage, imgWizStepCluster, imgWizSummaryPull, imgWizConfirm];
+  const pushFns = [imgWizStepId, imgWizStepImage, imgWizStepDiode, imgWizStepSecurity, imgWizSummaryPush, imgWizConfirm];
+  const bodyFns = w.wizardType === 'harbor-pull' ? pullFns : pushFns;
+  const body = (bodyFns[w.step] || (() => ''))();
+
+  return `
+    ${pageHeader('user', {
+      crumbs: [{ label: 'Créer…', action: 'goto-create' }, { label: w.templateTitle }],
+      title: w.templateTitle,
+      subtitle: w.templateSubtitle,
+    })}
+    <div class="content">
+      <div class="card">
+        <div class="card__body">
+          ${stepper}
+          ${w.error ? `<div class="banner banner--error">⚠️ <span>${esc(w.error)}</span></div>` : ''}
+          ${body}
+          ${isConfirm ? '' : `
+          <div class="wizard-actions">
+            <div>
+              ${w.step > 0
+                ? '<button class="btn btn--text" data-action="img-wiz-prev">Précédent</button>'
+                : '<button class="btn btn--text" data-action="goto-create">Annuler</button>'}
+            </div>
+            <div>
+              ${isSummary
+                ? '<button class="btn btn--success" data-action="img-wiz-submit">📨 Envoyer la demande</button>'
+                : '<button class="btn btn--primary" data-action="img-wiz-next">Suivant</button>'}
+            </div>
+          </div>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+/* ---- Étapes de l'assistant image ---- */
+
+function imgWizStepId() {
+  const d = ui.wizard.data;
+  return `
+    <div class="wiz-section">
+      <h3 class="wiz-section__title">Identification de la demande</h3>
+      <div class="form-row">
+        <label class="field-label">Équipe demandeuse</label>
+        <select class="field-select" data-input="img-wiz-team">
+          ${TEAMS.map(t => `<option value="${esc(t)}" ${d.team === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-row">
+        <label class="field-label">Justification / ticket de référence <span style="color:var(--bs-danger)">*</span></label>
+        <textarea rows="3" class="field-textarea" style="font-family:inherit;font-size:14px;padding:8px;border:1px solid var(--bs-border);border-radius:6px;width:100%;resize:vertical;"
+                  placeholder="Décrivez le besoin et joignez un numéro de ticket si disponible…"
+                  data-input="img-wiz-justification">${esc(d.justification)}</textarea>
+      </div>
+    </div>`;
+}
+
+function imgWizStepImage() {
+  const d = ui.wizard.data;
+  const harbProjects = [...new Set(
+    state.entities.filter(e => e.type === 'harbor-project').map(e => e.name)
+  )];
+  return `
+    <div class="wiz-section">
+      <h3 class="wiz-section__title">Image source (registre Harbor)</h3>
+      <div class="form-row">
+        <label class="field-label">Projet Harbor <span style="color:var(--bs-danger)">*</span></label>
+        ${harbProjects.length ? `
+        <select class="field-select" data-input="img-wiz-project">
+          <option value="">— Sélectionner un projet —</option>
+          ${harbProjects.map(p => `<option value="${esc(p)}" ${d.harborProject === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}
+          <option value="__custom__" ${!harbProjects.includes(d.harborProject) && d.harborProject && d.harborProject !== '__custom__' ? 'selected' : ''}>Autre projet (saisir manuellement)</option>
+        </select>
+        ${(!harbProjects.includes(d.harborProject) && d.harborProject && d.harborProject !== '__custom__') || d.harborProject === '__custom__' ? `
+        <input type="text" class="field-input" style="margin-top:6px;" placeholder="nom-du-projet"
+               data-input="img-wiz-project-custom" value="${esc(d.harborProject === '__custom__' ? '' : d.harborProject)}">` : ''}` : `
+        <input type="text" class="field-input" placeholder="ex. équipe-web/portail-client"
+               data-input="img-wiz-project" value="${esc(d.harborProject)}">`}
+      </div>
+      <div class="form-row">
+        <label class="field-label">Nom de l\'image <span style="color:var(--bs-danger)">*</span></label>
+        <input type="text" class="field-input" placeholder="ex. mon-app-backend"
+               data-input="img-wiz-image" value="${esc(d.imageName)}">
+      </div>
+      <div class="form-row">
+        <label class="field-label">Tag <span style="color:var(--bs-danger)">*</span></label>
+        <input type="text" class="field-input" placeholder="ex. v1.4.2 ou latest"
+               data-input="img-wiz-tag" value="${esc(d.imageTag)}">
+        <div class="field-hint muted" style="margin-top:4px;font-size:12px;">Référence complète : harbor.internal/${esc(d.harborProject || '<projet>')}/${esc(d.imageName || '<image>')}:${esc(d.imageTag || 'latest')}</div>
+      </div>
+    </div>`;
+}
+
+function imgWizStepCluster() {
+  const d = ui.wizard.data;
+  const clusters = [...new Set(
+    state.entities.filter(e => e.type === 'rancher-project').map(e => e.name)
+  )];
+  return `
+    <div class="wiz-section">
+      <h3 class="wiz-section__title">Destination (cluster Rancher)</h3>
+      <div class="form-row">
+        <label class="field-label">Cluster cible <span style="color:var(--bs-danger)">*</span></label>
+        ${clusters.length ? `
+        <select class="field-select" data-input="img-wiz-cluster">
+          <option value="">— Sélectionner un cluster —</option>
+          ${clusters.map(c => `<option value="${esc(c)}" ${d.targetCluster === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+          <option value="__custom__" ${!clusters.includes(d.targetCluster) && d.targetCluster ? 'selected' : ''}>Autre cluster</option>
+        </select>
+        ${(!clusters.includes(d.targetCluster) && d.targetCluster) ? `
+        <input type="text" class="field-input" style="margin-top:6px;" placeholder="nom-du-cluster"
+               data-input="img-wiz-cluster-custom" value="${esc(d.targetCluster)}">` : ''}` : `
+        <input type="text" class="field-input" placeholder="ex. cluster-rancher-prod"
+               data-input="img-wiz-cluster" value="${esc(d.targetCluster)}">`}
+      </div>
+      <div class="form-row">
+        <label class="field-label">Namespace cible</label>
+        <input type="text" class="field-input" placeholder="ex. production (vide = namespace par défaut)"
+               data-input="img-wiz-namespace" value="${esc(d.targetNamespace)}">
+      </div>
+    </div>`;
+}
+
+function imgWizStepDiode() {
+  const d = ui.wizard.data;
+  return `
+    <div class="wiz-section">
+      <h3 class="wiz-section__title">Destination (réseau sous diode)</h3>
+      <div class="banner banner--warning" style="margin-bottom:16px;">⚡ <span>Le transfert est <strong>unidirectionnel</strong> : aucun flux de retour n'est possible une fois l\'image transférée.</span></div>
+      <div class="form-row">
+        <label class="field-label">Zone de destination <span style="color:var(--bs-danger)">*</span></label>
+        <div class="pick-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:6px;">
+          ${Object.entries(DIODE_NETWORKS).map(([key, net]) => `
+            <div class="pick-card ${d.diodeNetwork === key ? 'is-selected' : ''}"
+                 data-action="img-wiz-diode" data-arg="${esc(key)}" style="cursor:pointer;padding:12px;border:2px solid ${d.diodeNetwork === key ? 'var(--bs-primary)' : 'var(--bs-border)'};border-radius:8px;">
+              <div style="font-size:22px;margin-bottom:4px;">${net.icon}</div>
+              <div style="font-weight:600;font-size:14px;">${esc(net.label)}</div>
+              <div class="muted" style="font-size:12px;margin-top:2px;">${esc(net.desc)}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="field-label">Système cible <span style="color:var(--bs-danger)">*</span></label>
+        <input type="text" class="field-input" placeholder="ex. serveur-isolé-prod"
+               data-input="img-wiz-system" value="${esc(d.targetSystem)}">
+      </div>
+      <div class="form-row">
+        <label class="field-label">Chemin de dépôt sur le système cible</label>
+        <input type="text" class="field-input" placeholder="ex. /images/applicatifs"
+               data-input="img-wiz-path" value="${esc(d.targetPath)}">
+      </div>
+    </div>`;
+}
+
+function imgWizStepSecurity() {
+  const d = ui.wizard.data;
+  return `
+    <div class="wiz-section">
+      <h3 class="wiz-section__title">Classification et sécurité</h3>
+      <div class="banner banner--error" style="margin-bottom:16px;">🔒 <span>Le transfert via diode est soumis à la politique de <strong>sécurité des systèmes d'information sensibles</strong>. Toute erreur de classification engage la responsabilité du demandeur.</span></div>
+      <div class="form-row">
+        <label class="field-label">Niveau de classification du contenu transféré <span style="color:var(--bs-danger)">*</span></label>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
+          ${Object.entries(SECURITY_LEVELS).map(([key, lvl]) => `
+            <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:2px solid ${d.securityLevel === key ? lvl.color : 'var(--bs-border)'};border-radius:8px;cursor:pointer;background:${d.securityLevel === key ? lvl.color + '18' : 'transparent'};">
+              <input type="radio" name="seclevel" data-action="img-wiz-seclevel" data-arg="${esc(key)}" ${d.securityLevel === key ? 'checked' : ''} style="accent-color:${lvl.color};">
+              <span style="font-size:18px;">${lvl.icon}</span>
+              <span style="font-weight:600;">${esc(lvl.label)}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:12px;">
+        <label class="field-label" style="color:var(--bs-text-muted);font-size:12px;">En soumettant cette demande, vous certifiez que l\'image à transférer ne contient aucun code malveillant et que sa classification est correcte.</label>
+      </div>
+    </div>`;
+}
+
+function imgWizSummaryPull() {
+  const d = ui.wizard.data;
+  return `
+    <div class="wiz-section">
+      <h3 class="wiz-section__title">Résumé de la demande</h3>
+      <div class="kv-grid" style="margin-top:12px;">
+        <div><span class="label">Type</span><span class="value">⚓ Pull image Harbor</span></div>
+        <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
+        <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(d.harborProject)}/${esc(d.imageName)}:${esc(d.imageTag)}</span></div>
+        <div><span class="label">Cluster cible</span><span class="value">${esc(d.targetCluster)}</span></div>
+        <div><span class="label">Namespace</span><span class="value">${esc(d.targetNamespace) || 'default'}</span></div>
+        <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(d.justification)}</span></div>
+      </div>
+      <div class="banner banner--info" style="margin-top:16px;">ℹ️ <span>L'équipe plateforme vérifiera la demande et lancera le pipeline de scan Trivy + déploiement Rancher.</span></div>
+    </div>`;
+}
+
+function imgWizSummaryPush() {
+  const d = ui.wizard.data;
+  const net = DIODE_NETWORKS[d.diodeNetwork];
+  const lvl = SECURITY_LEVELS[d.securityLevel];
+  return `
+    <div class="wiz-section">
+      <h3 class="wiz-section__title">Résumé de la demande</h3>
+      <div class="kv-grid" style="margin-top:12px;">
+        <div><span class="label">Type</span><span class="value">🔒 Push vers réseau sous diode</span></div>
+        <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
+        <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(d.harborProject)}/${esc(d.imageName)}:${esc(d.imageTag)}</span></div>
+        <div><span class="label">Zone diode</span><span class="value">${net ? net.icon + ' ' + net.label : esc(d.diodeNetwork)}</span></div>
+        <div><span class="label">Système cible</span><span class="value">${esc(d.targetSystem)}</span></div>
+        <div><span class="label">Chemin</span><span class="value mono">${esc(d.targetPath)}</span></div>
+        <div><span class="label">Classification</span><span class="value" style="color:${lvl ? lvl.color : 'inherit'}">${lvl ? lvl.icon + ' ' + lvl.label : esc(d.securityLevel)}</span></div>
+        <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(d.justification)}</span></div>
+      </div>
+      <div class="banner banner--warning" style="margin-top:16px;">⚡ <span>Ce transfert est soumis à une <strong>validation renforcée</strong>. Le pipeline inclut scan AV, Trivy, chiffrement AES-256 et traçabilité complète.</span></div>
+    </div>`;
+}
+
+function imgWizConfirm() {
+  const w = ui.wizard;
+  const id = w.sentRequestId;
+  return `
+    <div style="text-align:center;padding:32px 16px;">
+      <div style="font-size:48px;margin-bottom:16px;">📨</div>
+      <h3 style="margin-bottom:8px;">Demande envoyée !</h3>
+      <p class="muted">Votre demande <strong>${esc(id)}</strong> est en attente de validation par l'équipe plateforme.</p>
+      <div style="display:flex;gap:10px;justify-content:center;margin-top:24px;">
+        <button class="btn btn--outline" data-action="open-request" data-arg="${esc(id)}">Suivre ma demande</button>
+        <button class="btn btn--primary" data-action="goto-catalog">Retour au catalogue</button>
+      </div>
+    </div>`;
+}
+
+function validateImageWizardStep() {
+  const w = ui.wizard;
+  const d = w.data;
+  const steps = IMAGE_WIZARD_STEPS[w.wizardType] || [];
+  const summaryStep = steps.length - 2;
+
+  if (w.step === 0 && !d.justification.trim()) return 'La justification est obligatoire.';
+  if (w.step === 1) {
+    if (!d.imageName.trim()) return 'Le nom de l\'image est obligatoire.';
+    if (!d.imageTag.trim()) return 'Le tag de l\'image est obligatoire.';
+  }
+  if (w.wizardType === 'harbor-pull' && w.step === 2 && !d.targetCluster.trim()) return 'Le cluster cible est obligatoire.';
+  if (w.wizardType === 'diode-push' && w.step === 2 && !d.targetSystem.trim()) return 'Le système cible est obligatoire.';
+  return '';
+}
+
+function submitImageWizard() {
+  const w = ui.wizard;
+  const d = w.data;
+  const id = `REQ-${state.nextRequestNum++}`;
+  const label = w.wizardType === 'harbor-pull' ? 'Pull image Harbor' : 'Push vers réseau sous diode';
+  const req = {
+    id, requestType: w.wizardType,
+    name: `${w.wizardType === 'harbor-pull' ? 'pull' : 'push'}-${d.imageName.trim() || 'image'}-${id.toLowerCase()}`,
+    team: d.team, requester: 'Marie Lambert',
+    description: d.justification.trim(),
+    env: 'prod', size: 'S', network: 'FR', hypervisor: 'auto',
+    resources: {}, customSpecs: {}, resourceSizes: {}, vmSizes: [],
+    /* champs spécifiques image */
+    harborProject: d.harborProject.trim(),
+    imageName: d.imageName.trim(),
+    imageTag: d.imageTag.trim(),
+    targetCluster: d.targetCluster.trim(),
+    targetNamespace: d.targetNamespace.trim(),
+    diodeNetwork: d.diodeNetwork,
+    targetSystem: d.targetSystem.trim(),
+    targetPath: d.targetPath.trim(),
+    securityLevel: d.securityLevel,
+    status: 'pending', createdAt: now(),
+    comment: '', prov: null,
+    history: [{ ts: now(), label: `Demande de ${label} envoyée par Marie Lambert` }],
+  };
+  state.requests.unshift(req);
+  logActivity('📨', `Marie Lambert a soumis la demande ${id} (${label} — ${d.imageName}:${d.imageTag}).`);
+  saveState();
+
+  w.sentRequestId = id;
+  w.step = (IMAGE_WIZARD_STEPS[w.wizardType] || []).length - 1;
+  renderUser();
+  renderAdmin();
+  renderBadges();
+  toast('user', `Demande <strong>${id}</strong> envoyée pour validation`, 'success');
+  toast('admin', `🔔 Nouvelle demande <strong>${id}</strong> à valider`, 'info');
+}
+
 function userWizardPage() {
   const w = ui.wizard;
   if (!w) { ui.user.page = 'create'; return userTemplatesPage(); }
+  if (w.wizardType === 'harbor-pull' || w.wizardType === 'diode-push') return imageWizardPage();
 
   const activeSteps = WIZARD_STEPS.map((label, i) => ({ label, i }))
     .filter(({ i }) => !(w.resourceKey && i === 2));
@@ -1543,7 +2032,7 @@ function userRequestsPage() {
                   <td><span class="cell-name">${esc(r.name)}</span></td>
                   <td class="cell-secondary">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</td>
                   <td class="cell-secondary">${resourceSummary(r).join(' · ')}</td>
-                  <td>${euro(computeCost(r).total)}<span class="muted">/mois</span></td>
+                  <td>${r.requestType === 'harbor-pull' || r.requestType === 'diode-push' ? '<span class="muted">—</span>' : euro(computeCost(r).total) + '<span class="muted">/mois</span>'}</td>
                   <td>${statusChip(r.status)}</td>
                   <td class="cell-secondary">${timeAgo(r.createdAt)}</td>
                 </tr>`).join('')}
@@ -1582,6 +2071,16 @@ function userRequestDetailPage() {
         <div class="card__header"><span class="card__title">Récapitulatif</span></div>
         <div class="card__body">
           <div class="kv-grid">
+            ${r.requestType === 'harbor-pull' || r.requestType === 'diode-push' ? `
+            <div><span class="label">Type</span><span class="value">${r.requestType === 'harbor-pull' ? '⚓ Pull image Harbor' : '🔒 Push vers réseau sous diode'}</span></div>
+            <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(r.harborProject || '?')}/${esc(r.imageName || '?')}:${esc(r.imageTag || 'latest')}</span></div>
+            ${r.requestType === 'harbor-pull' ? `
+            <div><span class="label">Cluster cible</span><span class="value">${esc(r.targetCluster || '—')}</span></div>
+            <div><span class="label">Namespace</span><span class="value">${esc(r.targetNamespace) || 'default'}</span></div>` : `
+            <div><span class="label">Zone diode</span><span class="value">${(DIODE_NETWORKS[r.diodeNetwork] || {}).icon || ''} ${esc((DIODE_NETWORKS[r.diodeNetwork] || {}).label || r.diodeNetwork || '—')}</span></div>
+            <div><span class="label">Système cible</span><span class="value">${esc(r.targetSystem || '—')}</span></div>
+            <div><span class="label">Classification</span><span class="value">${(SECURITY_LEVELS[r.securityLevel] || {}).icon || ''} ${esc((SECURITY_LEVELS[r.securityLevel] || {}).label || r.securityLevel || '—')}</span></div>`}
+            <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(r.description) || '—'}</span></div>` : `
             <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</span></div>
             <div><span class="label">Réseau</span><span class="value">${NETWORKS[r.network || 'FR'].flag} ${NETWORKS[r.network || 'FR'].label}</span></div>
             ${r.resources.vm ? `<div><span class="label">Hyperviseur</span><span class="value">${(r.hypervisor && r.hypervisor !== 'auto') ? `${HYPERVISORS[r.hypervisor].icon} ${HYPERVISORS[r.hypervisor].label}` : 'Indifférent'}</span></div>` : ''}
@@ -1589,7 +2088,7 @@ function userRequestDetailPage() {
             <div><span class="label">Coût mensuel estimé</span><span class="value">${euro(cost.total)}</span></div>
             <div class="kv--full"><span class="label">Description</span><span class="value">${esc(r.description) || '—'}</span></div>
             <div class="kv--full"><span class="label">Ressources demandées</span>
-              <span class="value">${resourceSummary(r).map(x => `<span class="chip">${esc(x)}</span>`).join('')}</span></div>
+              <span class="value">${resourceSummary(r).map(x => `<span class="chip">${esc(x)}</span>`).join('')}</span></div>`}
             ${r.comment && r.status !== 'rejected' ? `
               <div class="kv--full"><span class="label">Commentaire de l'équipe plateforme</span>
                 <span class="value">💬 ${esc(r.comment)}</span></div>` : ''}
@@ -1684,7 +2183,7 @@ function adminInboxPage() {
                   <td><span class="cell-name">${esc(r.name)}</span></td>
                   <td class="cell-secondary">${esc(r.requester)}<br><span class="muted">${esc(r.team)}</span></td>
                   <td class="cell-secondary">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</td>
-                  <td>${euro(computeCost(r).total)}</td>
+                  <td>${r.requestType === 'harbor-pull' || r.requestType === 'diode-push' ? '<span class="muted">—</span>' : euro(computeCost(r).total)}</td>
                   <td>${statusChip(r.status)}</td>
                   <td class="cell-secondary">${timeAgo(r.createdAt)}</td>
                 </tr>`).join('')}
@@ -1699,6 +2198,7 @@ function adminInboxPage() {
 function adminRequestPage() {
   const r = state.requests.find(x => x.id === ui.admin.request);
   if (!r) { ui.admin.page = 'inbox'; return adminInboxPage(); }
+  if (r.requestType === 'harbor-pull' || r.requestType === 'diode-push') return adminImageRequestPage(r);
   const cost = computeCost(r);
   const canDecide = r.status === 'pending';
 
@@ -1817,6 +2317,77 @@ function adminRequestPage() {
     </div>`;
 }
 
+/* ---- Détail d'une demande image (harbor-pull / diode-push) ---- */
+function adminImageRequestPage(r) {
+  const canDecide = r.status === 'pending';
+  const isPull = r.requestType === 'harbor-pull';
+  const net = isPull ? null : (DIODE_NETWORKS[r.diodeNetwork] || {});
+  const lvl = isPull ? null : (SECURITY_LEVELS[r.securityLevel] || {});
+  const typeLabel = isPull ? '⚓ Pull image Harbor' : '🔒 Push vers réseau sous diode';
+
+  return `
+    ${pageHeader('admin', {
+      crumbs: [{ label: 'Validations', action: 'admin-goto-inbox' }, { label: r.id }],
+      title: `${r.id} — ${typeLabel}`,
+      subtitle: `Soumise par ${esc(r.requester)} (${esc(r.team)}) · ${timeAgo(r.createdAt)}`,
+      meta: [['Statut', statusChip(r.status)]],
+    })}
+    <div class="content">
+
+      <div class="card">
+        <div class="card__header"><span class="card__title">Détail de la demande</span></div>
+        <div class="card__body">
+          <div class="kv-grid">
+            <div><span class="label">Type</span><span class="value">${typeLabel}</span></div>
+            <div><span class="label">Équipe</span><span class="value">${esc(r.team)}</span></div>
+            <div><span class="label">Demandeur</span><span class="value">${esc(r.requester)}</span></div>
+            <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(r.harborProject || '?')}/${esc(r.imageName || '?')}:${esc(r.imageTag || 'latest')}</span></div>
+            ${isPull ? `
+            <div><span class="label">Cluster cible</span><span class="value">${esc(r.targetCluster || '—')}</span></div>
+            <div><span class="label">Namespace</span><span class="value">${esc(r.targetNamespace) || 'default'}</span></div>` : `
+            <div><span class="label">Zone diode</span><span class="value">${net.icon || ''} ${esc(net.label || r.diodeNetwork || '—')}</span></div>
+            <div><span class="label">Système cible</span><span class="value">${esc(r.targetSystem || '—')}</span></div>
+            <div><span class="label">Chemin</span><span class="value mono">${esc(r.targetPath || '/images')}</span></div>
+            <div><span class="label">Classification</span><span class="value" style="color:${lvl.color || 'inherit'}">${lvl.icon || ''} ${esc(lvl.label || r.securityLevel || '—')}</span></div>`}
+            <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(r.description) || '—'}</span></div>
+          </div>
+        </div>
+      </div>
+
+      ${!isPull ? `
+      <div class="banner banner--warning">⚡ <span>Transfert via <strong>diode unidirectionnelle</strong> : validez la classification et l\'habilitation avant d'approuver.</span></div>` : ''}
+
+      ${canDecide ? `
+      <div class="card">
+        <div class="card__header"><span class="card__title">Décision</span></div>
+        <div class="card__body">
+          <div class="form-row">
+            <label class="field-label">Commentaire (visible par le demandeur)</label>
+            <textarea rows="2" id="admin-comment" placeholder="ex. Approuvé — scan Trivy validé."></textarea>
+          </div>
+          <div style="display:flex; gap:10px; justify-content:flex-end;">
+            <button class="btn btn--danger" data-action="admin-reject" data-arg="${esc(r.id)}">Refuser</button>
+            <button class="btn btn--success" data-action="admin-approve" data-arg="${esc(r.id)}">✓ Approuver et lancer le pipeline</button>
+          </div>
+        </div>
+      </div>` : ''}
+
+      ${r.comment && !canDecide ? `
+        <div class="banner ${r.status === 'rejected' ? 'banner--error' : 'banner--info'}">💬 <span><strong>Commentaire :</strong> ${esc(r.comment)}</span></div>` : ''}
+
+      ${r.prov ? adminProvisioningCard(r) : ''}
+
+      <div class="card">
+        <div class="card__header"><span class="card__title">Historique de la demande</span></div>
+        <div class="card__body">
+          <ul class="timeline">
+            ${r.history.map(h => `<li>${esc(h.label)}<span class="time">${fmtDate(h.ts)}</span></li>`).join('')}
+          </ul>
+        </div>
+      </div>
+    </div>`;
+}
+
 /* Carte « provisionnement » : stepper vertical + progression + console */
 function adminProvisioningCard(r) {
   const p = r.prov;
@@ -1841,7 +2412,7 @@ function adminProvisioningCard(r) {
         <div class="progress"><div class="progress__bar ${finished ? 'progress__bar--done' : ''}" style="width:${pct}%"></div></div>
 
         <ul class="vstepper" style="margin-top:18px;">
-          ${PROV_STEPS.map((step, i) => {
+          ${getProvSteps(r).map((step, i) => {
             const st = p.steps[i];
             const cls = st === 'done' ? 'is-done' : st === 'active' ? 'is-active' : st === 'skipped' ? 'is-skipped' : '';
             const icon = st === 'done' ? '✓' : st === 'skipped' ? '–' : String(i + 1);
@@ -1929,7 +2500,7 @@ function startProvisioning(id) {
   if (!r || (r.status !== 'approved' && r.status !== 'provisioning')) return;
   r.status = 'provisioning';
   if (!r.prov) {
-    r.prov = { steps: PROV_STEPS.map(() => 'pending'), log: [] };
+    r.prov = { steps: getProvSteps(r).map(() => 'pending'), log: [] };
     provLog(r, 'info', `Pipeline de provisionnement démarré pour « ${r.name} » (${ENVIRONMENTS[r.env].label})`);
     r.history.push({ ts: now(), label: 'Provisionnement démarré' });
   }
@@ -1946,7 +2517,7 @@ function advanceProvisioning(id) {
   const idx = r.prov.steps.findIndex(s => s === 'pending' || s === 'active');
   if (idx === -1) { finishProvisioning(r); return; }
 
-  const step = PROV_STEPS[idx];
+  const step = getProvSteps(r)[idx];
 
   // Étape non concernée par la demande : marquée « ignorée », on enchaîne
   if (!step.needs(r)) {
@@ -1997,6 +2568,7 @@ function finishProvisioning(r) {
 
 /* Publie les entités correspondant aux ressources de la demande */
 function createEntitiesFromRequest(r) {
+  if (r.requestType === 'harbor-pull' || r.requestType === 'diode-push') return 0;
   const env = ENVIRONMENTS[r.env].lifecycle;
   const base = {
     owner: r.team, lifecycle: env, system: r.name,
@@ -2011,7 +2583,7 @@ function createEntitiesFromRequest(r) {
   if (r.resources.rancher) { add({ name: `${r.name}-rancher`, kind: 'Resource', type: 'rancher-project', tags: ['kubernetes'],
         description: `Projet Rancher « ${r.resources.rancherName || r.name} » (namespaces et quotas) du projet ${r.name}.` }); count++; }
   if (r.resources.harbor) { add({ name: `${r.name}-registry`, kind: 'Resource', type: 'harbor-project', tags: ['harbor', 'docker'],
-        description: `Registre d'images Harbor du projet ${r.name} (${r.resources.registryGb ?? 10} Go).` }); count++; }
+        description: `Registre d\'images Harbor du projet ${r.name} (${r.resources.registryGb ?? 10} Go).` }); count++; }
   if (r.resources.vm) { add({ name: `${r.name}-vms`, kind: 'Resource', type: 'virtual-machine',
         tags: [`x${r.resources.vmCount}`, r.size.toLowerCase(), (r.network || 'fr').toLowerCase(), ...((r.hypervisor && r.hypervisor !== 'auto') ? [r.hypervisor] : [])],
         description: `${r.resources.vmCount} machine(s) virtuelle(s) plan ${sizePlan(RESOURCE_DEFS.vm, r.size)}${(r.hypervisor && r.hypervisor !== 'auto') ? ` sur ${HYPERVISORS[r.hypervisor].label}` : ''} · région ${NETWORKS[r.network || 'FR'].label}.` }); count++; }
@@ -2121,9 +2693,32 @@ $('#user-main').addEventListener('click', e => {
     case 'filter-kind': ui.user.filterKind = arg; renderUser(); break;
     case 'filter-owner': ui.user.filterOwner = arg; renderUser(); break;
     case 'open-wizard': ui.wizard = newWizard(arg || null); ui.user.page = 'wizard'; renderUser(); break;
+    case 'open-image-wizard': ui.wizard = newImageWizard(arg); ui.user.page = 'wizard'; renderUser(); break;
     case 'not-included': toast('user', 'Fonctionnalité non incluse dans la maquette', 'warning'); break;
 
-    /* Assistant */
+    /* Assistant image (harbor-pull / diode-push) */
+    case 'img-wiz-prev':
+      if (w) { w.step = Math.max(0, w.step - 1); w.error = ''; renderUser(); } break;
+    case 'img-wiz-next':
+      if (!w) break;
+      w.error = validateImageWizardStep();
+      if (!w.error) w.step++;
+      renderUser();
+      break;
+    case 'img-wiz-submit':
+      if (!w) break;
+      w.error = validateImageWizardStep();
+      if (!w.error) submitImageWizard();
+      else renderUser();
+      break;
+    case 'img-wiz-goto-step':
+      if (w) { const s = parseInt(arg, 10); if (s < w.step) { w.step = s; w.error = ''; renderUser(); } } break;
+    case 'img-wiz-diode':
+      if (w) { w.data.diodeNetwork = arg; renderUser(); } break;
+    case 'img-wiz-seclevel':
+      if (w) { w.data.securityLevel = arg; renderUser(); } break;
+
+    /* Assistant infra */
     case 'wiz-prev': if (w) { w.step = Math.max(0, w.step - 1); if (w.resourceKey && w.step === 2) w.step = Math.max(0, w.step - 1); w.error = ''; renderUser(); } break;
     case 'wiz-next':
       if (!w) break;
@@ -2177,6 +2772,25 @@ $('#user-main').addEventListener('input', e => {
   if (!key) return;
   const w = ui.wizard;
   switch (key) {
+    /* Saisie dans l'assistant image */
+    case 'img-wiz-team': if (w) w.data.team = e.target.value; break;
+    case 'img-wiz-justification': if (w) w.data.justification = e.target.value; break;
+    case 'img-wiz-project':
+      if (w) { w.data.harborProject = e.target.value === '__custom__' ? '__custom__' : e.target.value; renderUser(); } break;
+    case 'img-wiz-project-custom':
+      if (w) { w.data.harborProject = e.target.value; } break;
+    case 'img-wiz-image':
+      if (w) { w.data.imageName = e.target.value; rerenderKeepFocus('[data-input="img-wiz-image"]', e.target); } break;
+    case 'img-wiz-tag':
+      if (w) { w.data.imageTag = e.target.value; rerenderKeepFocus('[data-input="img-wiz-tag"]', e.target); } break;
+    case 'img-wiz-cluster':
+      if (w) { w.data.targetCluster = e.target.value === '__custom__' ? '__custom__' : e.target.value; renderUser(); } break;
+    case 'img-wiz-cluster-custom':
+      if (w) { w.data.targetCluster = e.target.value; } break;
+    case 'img-wiz-namespace': if (w) w.data.targetNamespace = e.target.value; break;
+    case 'img-wiz-system': if (w) w.data.targetSystem = e.target.value; break;
+    case 'img-wiz-path': if (w) w.data.targetPath = e.target.value; break;
+    /* Saisie dans l'assistant infra */
     case 'wiz-name': if (w) { w.data.name = e.target.value; rerenderKeepFocus('[data-input="wiz-name"]', e.target); } break;
     case 'wiz-team': if (w) w.data.team = e.target.value; break;
     case 'wiz-hypervisor': if (w) { w.data.hypervisor = e.target.value; renderUser(); } break;
