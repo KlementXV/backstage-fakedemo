@@ -1,81 +1,81 @@
 /* ============================================================
-   Helios — maquette de portail développeur inspirée de Backstage
+   Helios — internal developer portal mockup inspired by Backstage
    ------------------------------------------------------------
-   Tout est simulé côté navigateur : aucun backend, aucun appel
-   réel à Rancher / Harbor / VMware / PostgreSQL / MongoDB.
+   Everything is simulated client-side: no backend, no real calls
+   to Rancher / Harbor / VMware / PostgreSQL / MongoDB.
 
-   Organisation du fichier :
-     1. Données de référence (équipes, environnements, tailles,
-        ressources, templates, statuts)
-     2. État global + persistance localStorage
-     3. Utilitaires (format, échappement, toasts)
-     4. Petits composants HTML réutilisables
-     5. Vue utilisateur (catalogue, entité, templates, assistant,
-        mes demandes)
-     6. Vue administrateur (validations, détail, provisionnement,
-        journal d'activité)
-     7. Simulation du provisionnement
-     8. Gestion des événements (délégation)
-     9. Initialisation
+   File structure:
+     1. Reference data (teams, environments, sizes,
+        resources, templates, statuses)
+     2. Global state + localStorage persistence
+     3. Utilities (formatting, escaping, toasts)
+     4. Reusable HTML components
+     5. User view (catalog, entity, templates, wizard,
+        my requests)
+     6. Admin view (validations, detail, provisioning,
+        activity log)
+     7. Provisioning simulation
+     8. Event handling (delegation)
+     9. Initialization
    ============================================================ */
 
 'use strict';
 
 /* ============================================================
-   1. Données de référence
+   1. Reference data
    ============================================================ */
 
 const TEAMS = [
-  'équipe-web', 'équipe-finance', 'équipe-data', 'équipe-mobile', 'équipe-plateforme',
+  ‘team-web’, ‘team-finance’, ‘team-data’, ‘team-mobile’, ‘team-platform’,
 ];
 
 const ENVIRONMENTS = {
-  dev:     { label: 'Développement', icon: '🧪', lifecycle: 'experimental',
-             desc: 'Bac à sable pour les développements en cours. Pas de garantie de disponibilité.' },
-  staging: { label: 'Recette',       icon: '🔍', lifecycle: 'staging',
-             desc: 'Environnement de validation fonctionnelle, iso-production allégé.' },
-  prod:    { label: 'Production',    icon: '🚀', lifecycle: 'production',
-             desc: 'Environnement de production. Haute disponibilité, sauvegardes et astreinte.' },
+  dev:     { label: ‘Development’, icon: ‘🧪’, lifecycle: ‘experimental’,
+             desc: ‘Sandbox for work in progress. No availability guarantee.’ },
+  staging: { label: ‘Staging’,     icon: ‘🔍’, lifecycle: ‘staging’,
+             desc: ‘Functional validation environment, lightweight production mirror.’ },
+  prod:    { label: ‘Production’,  icon: ‘🚀’, lifecycle: ‘production’,
+             desc: ‘Production environment. High availability, backups and on-call.’ },
 };
 
 const SIZES = {
-  S:  { label: 'S — Micro',       specs: 'VM-XS · PG-Dev · Redis-Dev · Rabbit-Dev' },
-  M:  { label: 'M — Standard',    specs: 'VM-M  · PG-M  · Redis-M  · Rabbit-M' },
-  L:  { label: 'L — Performance', specs: 'VM-L  · PG-L  · Redis-L  · Rabbit-L' },
-  XL: { label: 'XL — Intensif',   specs: 'VM-XL · PG-XL · Redis-XL · Rabbit-XL' },
-  custom: { label: 'Sur mesure',  specs: 'vCPU, RAM et stockage au choix' },
+  S:  { label: ‘S — Micro’,       specs: ‘VM-XS · PG-Dev · Redis-Dev · Rabbit-Dev’ },
+  M:  { label: ‘M — Standard’,    specs: ‘VM-M  · PG-M  · Redis-M  · Rabbit-M’ },
+  L:  { label: ‘L — Performance’, specs: ‘VM-L  · PG-L  · Redis-L  · Rabbit-L’ },
+  XL: { label: ‘XL — Intensive’,  specs: ‘VM-XL · PG-XL · Redis-XL · Rabbit-XL’ },
+  custom: { label: ‘Custom’,      specs: ‘vCPU, RAM and storage of your choice’ },
 };
 
-/* Réseaux / régions cibles (datacenters) — paramètre du Software Template Backstage */
+/* Target networks / regions (datacenters) — Backstage Software Template parameter */
 const NETWORKS = {
-  FR:  { flag: '🇫🇷', label: 'France (Paris)',       desc: 'Datacenter principal — hébergement par défaut des projets France.' },
-  IT:  { flag: '🇮🇹', label: 'Italie (Milan)',       desc: 'Datacenter régional Italie — capacité réduite.' },
-  USA: { flag: '🇺🇸', label: 'États-Unis (Ashburn)', desc: 'Datacenter Amériques — données soumises à la localisation US.' },
+  FR:  { flag: ‘🇫🇷’, label: ‘France (Paris)’,       desc: ‘Primary datacenter — default hosting for France projects.’ },
+  IT:  { flag: ‘🇮🇹’, label: ‘Italy (Milan)’,         desc: ‘Regional datacenter Italy — reduced capacity.’ },
+  USA: { flag: ‘🇺🇸’, label: ‘United States (Ashburn)’, desc: ‘Americas datacenter — data subject to US localisation.’ },
 };
 
-/* Zones de réseaux cloisonnés accessibles via diode unidirectionnelle */
+/* Isolated network zones accessible via one-way diode */
 const DIODE_NETWORKS = {
-  'diode-prod':    { icon: '🔴', label: 'Diode Production (Zone-A)',    desc: 'Réseau cloisonné de production — flux entrant uniquement.' },
-  'diode-quali':   { icon: '🟠', label: 'Diode Qualification (Zone-B)', desc: 'Réseau cloisonné de qualification — flux entrant uniquement.' },
-  'diode-offline': { icon: '⚫', label: 'Diode Hors-ligne (Zone-C)',    desc: 'Réseau sans connexion externe — haute sécurité.' },
+  ‘diode-prod’:    { icon: ‘🔴’, label: ‘Diode Production (Zone-A)’,    desc: ‘Isolated production network — inbound traffic only.’ },
+  ‘diode-quali’:   { icon: ‘🟠’, label: ‘Diode Qualification (Zone-B)’, desc: ‘Isolated qualification network — inbound traffic only.’ },
+  ‘diode-offline’: { icon: ‘⚫’, label: ‘Diode Offline (Zone-C)’,       desc: ‘Network without external connection — high security.’ },
 };
 
-/* Niveaux de classification des données transférées vers les réseaux sous diode */
+/* Classification levels for data transferred to diode networks */
 const SECURITY_LEVELS = {
-  diffusion_restreinte: { icon: '🟡', label: 'Diffusion Restreinte',   color: '#d97706' },
-  sensible:             { icon: '🟠', label: 'Sensible',               color: '#ea580c' },
-  confidentiel:         { icon: '🔴', label: 'Confidentiel Défense',   color: '#dc2626' },
+  diffusion_restreinte: { icon: ‘🟡’, label: ‘Restricted Distribution’, color: ‘#d97706’ },
+  sensible:             { icon: ‘🟠’, label: ‘Sensitive’,               color: ‘#ea580c’ },
+  confidentiel:         { icon: ‘🔴’, label: ‘Confidential Defence’,    color: ‘#dc2626’ },
 };
 
-/* Hyperviseurs disponibles (optionnel — s’applique aux machines virtuelles) */
+/* Available hypervisors (optional — applies to virtual machines) */
 const HYPERVISORS = {
-  auto:      { icon: '🎛️', label: 'Indifférent — choix de la plateforme' },
-  vmware:    { icon: '🟦', label: 'VMware vSphere' },
-  hyperv:    { icon: '🪟', label: 'Microsoft Hyper-V' },
-  harvester: { icon: '🐄', label: 'Harvester (SUSE / Rancher)' },
+  auto:      { icon: ‘🎛️’, label: ‘Any — platform choice’ },
+  vmware:    { icon: ‘🟦’, label: ‘VMware vSphere’ },
+  hyperv:    { icon: ‘🪟’, label: ‘Microsoft Hyper-V’ },
+  harvester: { icon: ‘🐄’, label: ‘Harvester (SUSE / Rancher)’ },
 };
 
-/* Empreinte technique (vCPU / Go RAM / Go stockage) par gabarit, pour le calcul de capacité */
+/* Technical footprint (vCPU / GB RAM / GB storage) per size, for capacity calculation */
 const SIZE_FOOTPRINT = {
   S:  { cpu: 2,  ram: 4,  storage: 40 },
   M:  { cpu: 4,  ram: 16, storage: 100 },
@@ -83,9 +83,9 @@ const SIZE_FOOTPRINT = {
   XL: { cpu: 16, ram: 64, storage: 500 },
 };
 
-/* Inventaire de capacité par région et par hyperviseur (simulé).
-   pool = capacité totale ; used = charge existante de référence.
-   Les demandes déjà approuvées/provisionnées s’y ajoutent dynamiquement. */
+/* Capacity inventory per region and hypervisor (simulated).
+   pool = total capacity ; used = existing baseline load.
+   Already approved/provisioned requests are added dynamically. */
 const CAPACITY = {
   FR: {
     pool: { cpu: 480, ram: 1920, storage: 36000 },
@@ -117,54 +117,52 @@ const CAPACITY = {
 };
 
 
-/* Ressources sélectionnables dans l’assistant (tarifs réels HT) */
+/* Resources available in the wizard (real prices excl. VAT) */
 const RESOURCE_DEFS = {
-  rancher:    { icon: '🐮', label: 'Projet Rancher (K8s)',     base: 75,   sized: false,
-                desc: 'Projet Kubernetes managé : namespaces, quotas, RBAC. Forfait 75 €/mois.' },
-  harbor:     { icon: '⚓', label: 'Registry Harbor',          base: 1,    sized: false, qty: 'registryGb',
-                desc: 'Registre d’images privé avec scan de vulnérabilités. Facturé 1 €/Go/mois.' },
-  vm:         { icon: '🖥️', label: 'Machines virtuelles',     base: 65,   sized: true, qty: 'vmCount',
+  rancher:    { icon: '🐮', label: 'Rancher Project (K8s)',     base: 75,   sized: false,
+                desc: 'Managed Kubernetes project: namespaces, quotas, RBAC. Flat rate €75/month.' },
+  harbor:     { icon: '⚓', label: 'Harbor Registry',          base: 1,    sized: false, qty: 'registryGb',
+                desc: 'Private image registry with vulnerability scanning. Billed at €1/GB/month.' },
+  vm:         { icon: '🖥️', label: 'Virtual Machines',     base: 65,   sized: true, qty: 'vmCount',
                 prices: { S: 65, M: 220, L: 420, XL: 820 },
                 planLabels: { S: 'VM-XS', M: 'VM-M', L: 'VM-L', XL: 'VM-XL' },
-                desc: 'Machines virtuelles Linux managées (VMaaS). Socle d’exploitation inclus.' },
-  postgres:   { icon: '🐘', label: 'PostgreSQL as a Service', base: 60,   sized: true,
+                desc: 'Managed Linux virtual machines (VMaaS). Operations baseline included.' },
+  postgres:   { icon: '🐘', label: 'PostgreSQL', base: 60,   sized: true,
                 prices: { S: 60, M: 190, L: 340, XL: 650 },
                 planLabels: { S: 'PG-Dev', M: 'PG-M', L: 'PG-L', XL: 'PG-XL' },
-                desc: 'Base relationnelle managée, sauvegardée quotidiennement. Replica ×2,7.' },
-  mariadb:    { icon: '🗃️', label: 'MariaDB as a Service',    base: 60,   sized: true,
+                desc: 'Managed relational database, backed up daily. Replica ×2.7.' },
+  mariadb:    { icon: '🗃️', label: 'MariaDB',    base: 60,   sized: true,
                 prices: { S: 60, M: 190, L: 340, XL: 650 },
                 planLabels: { S: 'Maria-Dev', M: 'Maria-M', L: 'Maria-L', XL: 'Maria-XL' },
-                desc: 'Base MariaDB managée, sauvegardée. Même grille tarifaire que PostgreSQL.' },
-  mongo:      { icon: '🍃', label: 'MongoDB as a Service',    base: 90,   sized: true,
+                desc: 'Managed MariaDB, backed up. Same pricing grid as PostgreSQL.' },
+  mongo:      { icon: '🍃', label: 'MongoDB',    base: 90,   sized: true,
                 prices: { S: 90, M: 320, L: 620, XL: 1200 },
                 planLabels: { S: 'Mongo-Dev', M: 'Mongo-M', L: 'Mongo-L', XL: 'Mongo-XL' },
-                desc: 'Base documentaire managée (replica set × 3). Tarif ×2,7 inclus.' },
-  redis:      { icon: '🔴', label: 'Redis as a Service',      base: 35,   sized: true,
+                desc: 'Managed document database (replica set × 3). Rate ×2.7 included.' },
+  redis:      { icon: '🔴', label: 'Redis',      base: 35,   sized: true,
                 prices: { S: 35, M: 110, L: 190, XL: 350 },
                 planLabels: { S: 'Redis-Dev', M: 'Redis-M', L: 'Redis-L', XL: 'Redis-XL' },
-                desc: 'Cache Redis managé. Options : persistance +20 €, haute disponibilité ×2,5.' },
-  rabbitmq:   { icon: '🐰', label: 'RabbitMQ as a Service',   base: 60,   sized: true,
+                desc: 'Managed Redis cache. Options: persistence +€20, high availability ×2.5.' },
+  rabbitmq:   { icon: '🐰', label: 'RabbitMQ',   base: 60,   sized: true,
                 prices: { S: 60, M: 190, L: 340, XL: 620 },
                 planLabels: { S: 'Rabbit-Dev', M: 'Rabbit-M', L: 'Rabbit-L', XL: 'Rabbit-XL' },
-                desc: 'Broker de messages managé. Cluster 3 nœuds : tarif ×2,5.' },
-  serverless: { icon: '⚡', label: 'Serverless Containers',   base: 30,   sized: false,
-                desc: 'Conteneurs serverless — 0,10 €/h/vCPU, 0,025 €/Gio/h. Min. 30 €/service/mois.' },
-  wiki:       { icon: '📖', label: 'Wiki as a Service',       base: 120,  sized: false,
-                desc: 'Wiki collaboratif managé (application, base de données, stockage inclus).' },
+                desc: 'Managed message broker. 3-node cluster: rate ×2.5.' },
+  wiki:       { icon: '📖', label: 'Wiki',       base: 120,  sized: false,
+                desc: 'Managed collaborative wiki (application, database and storage included).' },
 };
 
-/* Catalogue de templates (page « Créer… ») */
+/* Template catalog ("Create…" page) */
 const TEMPLATES = [
   {
     id: 'platform-project', enabled: true, type: 'Infrastructure', category: 'infra',
     title: 'Bundle',
-    desc: 'Crée un projet complet : Rancher, Harbor, machines virtuelles et bases de données, avec workflow de validation.',
+    desc: 'Creates a complete project: Rancher, Harbor, virtual machines and databases, with validation workflow.',
     tags: ['rancher', 'harbor', 'vm', 'postgresql', 'mongodb'],
-    owner: 'équipe-plateforme', version: 'v2.4', usageCount: 47, isNew: false,
+    owner: 'team-platform', version: 'v2.4', usageCount: 47, isNew: false,
   },
 ];
 
-/* Métadonnées des templates individuels (générés depuis RESOURCE_DEFS) */
+/* Individual template metadata (generated from RESOURCE_DEFS) */
 const RES_TPL_META = {
   rancher:    { type: 'Infrastructure', category: 'infra', tags: ['rancher', 'kubernetes', 'k8s'],         usageCount: 38 },
   harbor:     { type: 'Infrastructure', category: 'infra', tags: ['harbor', 'docker', 'registry'],         usageCount: 29 },
@@ -189,7 +187,7 @@ Object.entries(RES_TPL_META).forEach(([key, meta]) => {
     title: def.icon + ' ' + def.label,
     desc: def.desc,
     tags: meta.tags,
-    owner: 'équipe-plateforme',
+    owner: 'team-platform',
     version: 'v1.0',
     usageCount: meta.usageCount || 0,
     isNew: meta.isNew || false,
@@ -202,235 +200,235 @@ TEMPLATES.push({
   title: 'PLM Deployment',
   desc: 'Automated provisioning of the PLM platform: application server, database, file storage and network configuration. Estimated setup time: 5 min.',
   tags: ['plm', 'enterprise', 'deployment'],
-  owner: 'équipe-plateforme', version: 'v0.1', usageCount: 0, isNew: false,
+  owner: 'team-platform', version: 'v0.1', usageCount: 0, isNew: false,
   duration: '5 min',
 });
 
-/* Harbor Pull — rapatriement d’image depuis le registre vers un cluster Rancher */
+/* Harbor Pull — image pull from registry to Rancher cluster */
 TEMPLATES.push({
   id: 'harbor-pull', enabled: true, type: 'Infrastructure', category: 'infra',
-  title: '⚓ Pull image Harbor',
-  desc: 'Demande de rapatriement d’une image depuis le registre Harbor vers un cluster Rancher. Scan Trivy automatique et validation équipe plateforme inclus.',
+  title: '⚓ Harbor image pull',
+  desc: 'Request to pull an image from the Harbor registry to a Rancher cluster. Automatic Trivy scan and platform team validation included.',
   tags: ['harbor', 'docker', 'image', 'pull', 'registry'],
-  owner: 'équipe-plateforme', version: 'v1.2', usageCount: 8, isNew: true,
+  owner: 'team-platform', version: 'v1.2', usageCount: 8, isNew: true,
   action: 'open-image-wizard', wizardType: 'harbor-pull',
 });
 
-/* Diode Push — transfert d’image vers un réseau cloisonné sous diode unidirectionnelle */
+/* Diode Push — image transfer to isolated network via one-way diode */
 TEMPLATES.push({
   id: 'diode-push', enabled: true, type: 'Infrastructure', category: 'infra',
-  title: '🔒 Push vers réseau sous diode',
-  desc: 'Demande de transfert unidirectionnel d’une image Harbor vers un réseau sécurisé sous diode. Scan AV + Trivy, chiffrement AES-256 et validation renforcée.',
-  tags: ['harbor', 'docker', 'diode', 'sécurité', 'push', 'cloisonné'],
-  owner: 'équipe-plateforme', version: 'v1.0', usageCount: 3, isNew: true,
+  title: '🔒 Push to diode network',
+  desc: 'Request for one-way transfer of a Harbor image to a diode-secured network. AV + Trivy scan, AES-256 encryption and enhanced validation.',
+  tags: ['harbor', 'docker', 'diode', 'security', 'push', 'isolated'],
+  owner: 'team-platform', version: 'v1.0', usageCount: 3, isNew: true,
   action: 'open-image-wizard', wizardType: 'diode-push',
 });
 
-/* Statuts d'une demande */
+/* Request statuses */
 const STATUSES = {
-  draft:        { label: 'Brouillon',                cls: 'status--draft' },
-  pending:      { label: 'En attente de validation', cls: 'status--pending' },
-  approved:     { label: 'Approuvée',                cls: 'status--approved' },
-  provisioning: { label: 'Provisionnement en cours', cls: 'status--running' },
-  available:    { label: 'Disponible',               cls: 'status--available' },
-  rejected:     { label: 'Refusée',                  cls: 'status--rejected' },
+  draft:        { label: 'Draft',              cls: 'status--draft' },
+  pending:      { label: 'Pending validation', cls: 'status--pending' },
+  approved:     { label: 'Approved',          cls: 'status--approved' },
+  provisioning: { label: 'Provisioning',      cls: 'status--running' },
+  available:    { label: 'Available',          cls: 'status--available' },
+  rejected:     { label: 'Rejected',           cls: 'status--rejected' },
 };
 
-/* Étapes simulées du provisionnement.
-   `needs` indique si l'étape s'applique à la demande,
-   `logs`  fournit les lignes du journal d'exécution. */
+/* Simulated provisioning steps.
+   `needs` indicates if the step applies to the request,
+   `logs`  provides execution log lines. */
 const PROV_STEPS = [
   {
-    key: 'rancher', title: 'Création du projet Rancher',
+    key: 'rancher', title: 'Rancher project creation',
     needs: r => r.resources.rancher,
     logs: r => [
-      ['info', `Connexion à l'API Rancher (cluster ${r.env === 'prod' ? 'prod-01' : 'nonprod-02'})…`],
-      ['', `Création du projet « ${r.resources.rancherName || r.name} » et des namespaces associés`],
-      ['ok', 'Quotas CPU/RAM appliqués · RBAC synchronisé'],
+      ['info', `Connecting to Rancher API (cluster ${r.env === 'prod' ? 'prod-01' : 'nonprod-02'})…`],
+      ['', `Creating project "${r.resources.rancherName || r.name}" and associated namespaces`],
+      ['ok', 'CPU/RAM quotas applied · RBAC synchronized'],
     ],
   },
   {
-    key: 'harbor', title: 'Création du projet Harbor',
+    key: 'harbor', title: 'Harbor project creation',
     needs: r => r.resources.harbor,
     logs: r => [
-      ['info', 'Connexion au registre Harbor…'],
-      ['', `Projet « ${r.name} » créé · politique de rétention : 10 tags`],
-      ['ok', 'Scan de vulnérabilités activé (Trivy)'],
+      ['info', 'Connecting to Harbor registry…'],
+      ['', `Project "${r.name}" created · retention policy: 10 tags`],
+      ['ok', 'Vulnerability scanning enabled (Trivy)'],
     ],
   },
   {
-    key: 'vm', title: 'Création des machines virtuelles',
+    key: 'vm', title: 'Virtual machine creation',
     needs: r => r.resources.vm,
     logs: r => {
       const vmSizes = r.vmSizes ?? Array(r.resources.vmCount).fill(r.size);
       const def = RESOURCE_DEFS.vm;
       return [
-        ['info', `Provisionnement sur ${(r.hypervisor && r.hypervisor !== 'auto') ? HYPERVISORS[r.hypervisor].label : 'l’hyperviseur sélectionné automatiquement'} · région ${NETWORKS[r.network || 'FR'].label}`],
-        ['info', `Clonage du modèle ubuntu-22.04 (${r.resources.vmCount} instance(s))…`],
-        ...vmSizes.map((sz, i) => ['', `VM #${i + 1} : gabarit ${sizePlan(def, sz)}`]),
-        ['', 'Attribution des adresses IP et enregistrement DNS'],
-        ['ok', `${r.resources.vmCount} VM démarrée(s) · agent de supervision installé`],
+        ['info', `Provisioning on ${(r.hypervisor && r.hypervisor !== 'auto') ? HYPERVISORS[r.hypervisor].label : 'auto-selected hypervisor'} · region ${NETWORKS[r.network || 'FR'].label}`],
+        ['info', `Cloning ubuntu-22.04 template (${r.resources.vmCount} instance(s))…`],
+        ...vmSizes.map((sz, i) => ['', `VM #${i + 1}: plan ${sizePlan(def, sz)}`]),
+        ['', 'Assigning IP addresses and DNS registration'],
+        ['ok', `${r.resources.vmCount} VM(s) started · monitoring agent installed`],
       ];
     },
   },
   {
-    key: 'db', title: 'Création des bases de données',
+    key: 'db', title: 'Database creation',
     needs: r => r.resources.postgres || r.resources.mariadb || r.resources.mongo,
     logs: r => [
-      ['info', 'Provisionnement des instances managées…'],
-      ...(r.resources.postgres ? [['', `PostgreSQL 16 « ${r.name}-postgresql » créée · sauvegarde quotidienne`]] : []),
-      ...(r.resources.mariadb  ? [['', `MariaDB 10 « ${r.name}-mariadb » créée · sauvegarde quotidienne`]] : []),
-      ...(r.resources.mongo    ? [['', `MongoDB 7 « ${r.name}-mongodb » créée (replica set × 3)`]] : []),
-      ['ok', 'Comptes applicatifs générés et stockés dans le coffre'],
+      ['info', 'Provisioning managed instances…'],
+      ...(r.resources.postgres ? [['', `PostgreSQL 16 "${r.name}-postgresql" created · daily backup`]] : []),
+      ...(r.resources.mariadb  ? [['', `MariaDB 10 "${r.name}-mariadb" created · daily backup`]] : []),
+      ...(r.resources.mongo    ? [['', `MongoDB 7 "${r.name}-mongodb" created (replica set × 3)`]] : []),
+      ['ok', 'Application accounts generated and stored in vault'],
     ],
   },
   {
-    key: 'messaging', title: 'Déploiement des services de messagerie et cache',
+    key: 'messaging', title: 'Messaging and cache services deployment',
     needs: r => r.resources.redis || r.resources.rabbitmq,
     logs: r => [
-      ['info', 'Déploiement des brokers et caches…'],
-      ...(r.resources.redis    ? [['', `Redis « ${r.name}-redis » déployé · persistance configurée`]] : []),
-      ...(r.resources.rabbitmq ? [['', `RabbitMQ « ${r.name}-rabbitmq » déployé · vhosts et policies appliqués`]] : []),
-      ['ok', 'Services de messagerie opérationnels'],
+      ['info', 'Deploying brokers and caches…'],
+      ...(r.resources.redis    ? [['', `Redis "${r.name}-redis" deployed · persistence configured`]] : []),
+      ...(r.resources.rabbitmq ? [['', `RabbitMQ "${r.name}-rabbitmq" deployed · vhosts and policies applied`]] : []),
+      ['ok', 'Messaging services operational'],
     ],
   },
   {
-    key: 'services', title: 'Déploiement des services complémentaires',
-    needs: r => r.resources.serverless || r.resources.wiki,
+    key: 'services', title: 'Additional services deployment',
+    needs: r => r.resources.wiki,
     logs: r => [
-      ['info', 'Activation des services managés…'],
-      ...(r.resources.serverless ? [['', `Namespace serverless « ${r.name} » provisionné · image ${r.resources.serverlessImage || 'harbor.exemple.fr/' + r.name + ':latest'} · autoscaling activé`]] : []),
-      ...(r.resources.wiki       ? [['', `Wiki « ${r.resources.wikiName || r.name + '-wiki'} » créé · base et stockage initialisés`]] : []),
-      ['ok', 'Services complémentaires disponibles'],
+      ['info', 'Activating managed services…'],
+      
+      ...(r.resources.wiki ? [['', `Wiki "${r.resources.wikiName || r.name + '-wiki'}" created · database and storage initialized`]] : []),
+      ['ok', 'Additional services available'],
     ],
   },
   {
-    key: 'access', title: 'Configuration des accès',
+    key: 'access', title: 'Access configuration',
     needs: () => true,
     logs: r => [
-      ['info', `Création du groupe d'accès « ${r.team} »…`],
-      ['', 'Propagation des rôles vers Rancher, Harbor et le bastion SSH'],
-      ['ok', 'Secrets distribués · authentification unique active'],
+      ['info', `Creating access group "${r.team}"…`],
+      ['', 'Propagating roles to Rancher, Harbor and SSH bastion'],
+      ['ok', 'Secrets distributed · single sign-on active'],
     ],
   },
   {
-    key: 'finalize', title: 'Finalisation du projet',
+    key: 'finalize', title: 'Project finalization',
     needs: () => true,
     logs: r => [
-      ['info', 'Enregistrement des entités dans le catalogue…'],
-      ['', 'Génération de la documentation et des tableaux de bord'],
-      ['ok', `Projet « ${r.name} » prêt à l'emploi 🎉`],
+      ['info', 'Registering entities in the catalog…'],
+      ['', 'Generating documentation and dashboards'],
+      ['ok', `Project "${r.name}" ready to use 🎉`],
     ],
   },
 ]
-/* Étapes de pipeline : rapatriement d\'image Harbor → cluster Rancher */
+/* Pipeline steps: Harbor image pull → Rancher cluster */
 const HARBOR_PULL_STEPS = [
   {
-    key: 'auth', title: 'Authentification Harbor',
+    key: 'auth', title: 'Harbor authentication',
     needs: () => true,
     logs: r => [
-      ['info', `Connexion au registre Harbor (projet : ${r.harborProject || 'n/a'})…`],
-      ['ok', 'Token JWT obtenu · session établie'],
+      ['info', `Connecting to Harbor registry (project: ${r.harborProject || 'n/a'})…`],
+      ['ok', 'JWT token obtained · session established'],
     ],
   },
   {
-    key: 'scan', title: 'Scan de vulnérabilités Trivy',
+    key: 'scan', title: 'Trivy vulnerability scan',
     needs: () => true,
     logs: r => [
-      ['info', `Analyse de l\'image ${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
-      ['', 'Trivy : 0 CVE critique · 2 CVE mineures (ignorées par policy)'],
-      ['ok', 'Image approuvée par la politique de sécurité'],
+      ['info', `Scanning image ${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
+      ['', 'Trivy: 0 critical CVE · 2 minor CVE (ignored by policy)'],
+      ['ok', 'Image approved by security policy'],
     ],
   },
   {
-    key: 'pull', title: 'Pull et re-tagging',
+    key: 'pull', title: 'Pull and re-tagging',
     needs: () => true,
     logs: r => [
       ['info', `docker pull harbor.internal/${r.harborProject || 'n/a'}/${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
       ['', 'Digest : sha256:a3f8' + Math.random().toString(16).slice(2, 10) + '…'],
       ['', `Re-tag → registry.${r.targetCluster || 'rancher-prod'}/${r.imageName || 'n/a'}:${r.imageTag || 'latest'}`],
-      ['ok', 'Image disponible dans le registre cible'],
+      ['ok', 'Image available in target registry'],
     ],
   },
   {
-    key: 'deploy', title: 'Déploiement dans Rancher',
+    key: 'deploy', title: 'Deployment to Rancher',
     needs: () => true,
     logs: r => [
-      ['info', `Connexion au cluster « ${r.targetCluster || 'rancher-prod'} »…`],
-      ['', `Namespace cible : ${r.targetNamespace || 'default'}`],
-      ['', 'Mise à jour du tag dans les déploiements concernés…'],
-      ['ok', 'Image déployée · Rolling Update complété'],
+      ['info', `Connecting to cluster "${r.targetCluster || 'rancher-prod'}"…`],
+      ['', `Target namespace: ${r.targetNamespace || 'default'}`],
+      ['', 'Updating tag in affected deployments…'],
+      ['ok', 'Image deployed · Rolling Update completed'],
     ],
   },
   {
-    key: 'notify', title: 'Notification et audit',
+    key: 'notify', title: 'Notification and audit',
     needs: () => true,
     logs: r => [
-      ['', 'Événement consigné dans le registre d\'audit Harbor…'],
-      ['', `Notification envoyée à ${r.team} via Teams`],
-      ['ok', 'Pull terminé — catalogue mis à jour'],
+      ['', 'Event logged in Harbor audit registry…'],
+      ['', `Notification sent to ${r.team} via Teams`],
+      ['ok', 'Pull completed — catalog updated'],
     ],
   },
 ];
 
-/* Étapes de pipeline : push via diode unidirectionnelle */
+/* Pipeline steps: push via one-way diode */
 const DIODE_PUSH_STEPS = [
   {
-    key: 'preflight', title: 'Pré-vérification sécurité',
+    key: 'preflight', title: 'Security pre-check',
     needs: () => true,
     logs: r => [
-      ['info', `Classification : ${r.securityLevel || 'sensible'} · Destination : ${r.diodeNetwork || 'diode-prod'}`],
-      ['', 'Vérification de l\'habilitation du demandeur…'],
-      ['ok', 'Habilitation confirmée · Autorisation de transfert accordée'],
+      ['info', `Classification: ${r.securityLevel || 'sensible'} · Destination: ${r.diodeNetwork || 'diode-prod'}`],
+      ['', 'Verifying requester clearance…'],
+      ['ok', 'Clearance confirmed · Transfer authorisation granted'],
     ],
   },
   {
-    key: 'scan', title: 'Scan antiviral et Trivy',
+    key: 'scan', title: 'Antivirus and Trivy scan',
     needs: () => true,
     logs: r => [
-      ['info', `Analyse de l\'image ${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
-      ['', 'Trivy : 0 CVE critique · signature vérifiée (Cosign)'],
-      ['', 'Analyse antiviral (ClamAV) : aucune menace détectée'],
-      ['ok', 'Image conforme aux exigences de sécurité'],
+      ['info', `Scanning image ${r.imageName || 'n/a'}:${r.imageTag || 'latest'}…`],
+      ['', 'Trivy: 0 critical CVE · signature verified (Cosign)'],
+      ['', 'Antivirus scan (ClamAV): no threat detected'],
+      ['ok', 'Image meets security requirements'],
     ],
   },
   {
-    key: 'export', title: 'Export et packaging',
+    key: 'export', title: 'Export and packaging',
     needs: () => true,
     logs: r => [
-      ['info', 'Extraction de l\'image en archive OCI…'],
+      ['info', 'Extracting image to OCI archive…'],
       ['', `docker save harbor.internal/${r.harborProject || 'n/a'}/${r.imageName || 'n/a'}:${r.imageTag || 'latest'} | gzip`],
-      ['', 'Taille : ' + (Math.floor(Math.random() * 800 + 100)) + ' Mo · Hash SHA-256 calculé'],
-      ['ok', 'Archive signée et chiffrée (AES-256-GCM)'],
+      ['', 'Size: ' + (Math.floor(Math.random() * 800 + 100)) + ' MB · SHA-256 hash computed'],
+      ['ok', 'Archive signed and encrypted (AES-256-GCM)'],
     ],
   },
   {
-    key: 'transfer', title: 'Transfert via la diode',
+    key: 'transfer', title: 'Transfer via diode',
     needs: () => true,
     logs: r => [
-      ['info', `Connexion à la diode ${r.diodeNetwork || 'diode-prod'} (flux unidirectionnel)…`],
-      ['', `Chemin destination : ${r.targetPath || '/images'}`],
-      ['', 'Transfert en cours (aucun flux retour possible)…'],
-      ['ok', 'Archive reçue côté sécurisé · intégrité vérifiée (SHA-256)'],
+      ['info', `Connecting to diode ${r.diodeNetwork || 'diode-prod'} (one-way flow)…`],
+      ['', `Destination path: ${r.targetPath || '/images'}`],
+      ['', 'Transfer in progress (no return flow possible)…'],
+      ['ok', 'Archive received on secure side · integrity verified (SHA-256)'],
     ],
   },
   {
-    key: 'import', title: 'Import côté réseau sécurisé',
+    key: 'import', title: 'Import on secure network side',
     needs: () => true,
     logs: r => [
-      ['info', `Chargement de l\'archive sur le système « ${r.targetSystem || 'système-cible'} »…`],
+      ['info', `Loading archive onto system "${r.targetSystem || 'target-system'}"…`],
       ['', 'docker load < image.tar.gz'],
-      ['ok', 'Image disponible dans le registre isolé'],
+      ['ok', 'Image available in isolated registry'],
     ],
   },
   {
-    key: 'cleanup', title: 'Audit et nettoyage',
+    key: 'cleanup', title: 'Audit and cleanup',
     needs: () => true,
     logs: r => [
-      ['', 'Suppression des archives temporaires…'],
-      ['', 'Enregistrement dans le registre de transferts (compliance)…'],
-      ['', `Notification à ${r.team} — transfert terminé`],
-      ['ok', 'Transfert complété · traçabilité enregistrée'],
+      ['', 'Deleting temporary archives…'],
+      ['', 'Recording in transfer registry (compliance)…'],
+      ['', `Notification to ${r.team} — transfer completed`],
+      ['ok', 'Transfer completed · traceability recorded'],
     ],
   },
 ];
@@ -444,83 +442,83 @@ function getProvSteps(r) {
 ;
 
 /* ============================================================
-   2. État global + persistance
+   2. Global state + persistence
    ============================================================ */
 
 const STORAGE_KEY = 'helios-demo-state-v3';
 const now = () => Date.now();
 const MIN = 60000, HOUR = 3600000, DAY = 86400000;
 
-/* État de départ : un catalogue déjà vivant + un historique crédible */
+/* Initial state: an already populated catalog + credible history */
 function defaultState() {
   const t0 = now();
   return {
     nextRequestNum: 1042,
     entities: [
-      { name: 'portail-client', kind: 'Component', type: 'website', owner: 'équipe-web',
-        lifecycle: 'production', system: 'expérience-client', tags: ['react', 'cdn'],
-        description: 'Portail web destiné aux clients finaux.', createdAt: t0 - 90 * DAY },
-      { name: 'facturation-api', kind: 'Component', type: 'service', owner: 'équipe-finance',
-        lifecycle: 'production', system: 'facturation', tags: ['java', 'rest'],
-        description: 'API de gestion des factures et des paiements.', createdAt: t0 - 120 * DAY },
-      { name: 'auth-service', kind: 'Component', type: 'service', owner: 'équipe-plateforme',
-        lifecycle: 'production', system: 'socle-technique', tags: ['go', 'oidc'],
-        description: 'Service central d’authentification (OIDC).', createdAt: t0 - 200 * DAY },
-      { name: 'notifications-worker', kind: 'Component', type: 'service', owner: 'équipe-web',
-        lifecycle: 'experimental', system: 'expérience-client', tags: ['python', 'rabbitmq'],
-        description: 'Traitement asynchrone des notifications clients.', createdAt: t0 - 20 * DAY },
-      { name: 'data-warehouse', kind: 'Resource', type: 'database', owner: 'équipe-data',
-        lifecycle: 'production', system: 'données', tags: ['postgresql'],
-        description: 'Entrepôt de données analytique mutualisé.', createdAt: t0 - 150 * DAY },
-      { name: 'cluster-rancher-prod', kind: 'Resource', type: 'rancher-project', owner: 'équipe-plateforme',
-        lifecycle: 'production', system: 'socle-technique', tags: ['kubernetes'],
-        description: 'Cluster Kubernetes de production managé par Rancher.', createdAt: t0 - 300 * DAY },
-      { name: 'registry-harbor', kind: 'Resource', type: 'harbor-project', owner: 'équipe-plateforme',
-        lifecycle: 'production', system: 'socle-technique', tags: ['harbor', 'docker'],
-        description: 'Registre d’images central avec scan de vulnérabilités.', createdAt: t0 - 300 * DAY },
-      { name: 'portail-rh', kind: 'Component', type: 'service', owner: 'équipe-web',
-        lifecycle: 'staging', system: 'ressources-humaines', tags: ['recette', 'taille-m'],
-        description: 'Projet provisionné via la demande REQ-1037.', createdAt: t0 - 3 * DAY, fromRequest: 'REQ-1037' },
-      { name: 'portail-rh-postgresql', kind: 'Resource', type: 'database', owner: 'équipe-web',
-        lifecycle: 'staging', system: 'ressources-humaines', tags: ['postgresql'],
-        description: 'Base PostgreSQL managée du projet portail-rh.', createdAt: t0 - 3 * DAY, fromRequest: 'REQ-1037' },
+      { name: 'portail-client', kind: 'Component', type: 'website', owner: 'team-web',
+        lifecycle: 'production', system: 'customer-experience', tags: ['react', 'cdn'],
+        description: 'Web portal for end customers.', createdAt: t0 - 90 * DAY },
+      { name: 'facturation-api', kind: 'Component', type: 'service', owner: 'team-finance',
+        lifecycle: 'production', system: 'billing', tags: ['java', 'rest'],
+        description: 'Invoice and payment management API.', createdAt: t0 - 120 * DAY },
+      { name: 'auth-service', kind: 'Component', type: 'service', owner: 'team-platform',
+        lifecycle: 'production', system: 'platform-core', tags: ['go', 'oidc'],
+        description: 'Central authentication service (OIDC).', createdAt: t0 - 200 * DAY },
+      { name: 'notifications-worker', kind: 'Component', type: 'service', owner: 'team-web',
+        lifecycle: 'experimental', system: 'customer-experience', tags: ['python', 'rabbitmq'],
+        description: 'Asynchronous processing of customer notifications.', createdAt: t0 - 20 * DAY },
+      { name: 'data-warehouse', kind: 'Resource', type: 'database', owner: 'team-data',
+        lifecycle: 'production', system: 'data', tags: ['postgresql'],
+        description: 'Shared analytical data warehouse.', createdAt: t0 - 150 * DAY },
+      { name: 'cluster-rancher-prod', kind: 'Resource', type: 'rancher-project', owner: 'team-platform',
+        lifecycle: 'production', system: 'platform-core', tags: ['kubernetes'],
+        description: 'Production Kubernetes cluster managed by Rancher.', createdAt: t0 - 300 * DAY },
+      { name: 'registry-harbor', kind: 'Resource', type: 'harbor-project', owner: 'team-platform',
+        lifecycle: 'production', system: 'platform-core', tags: ['harbor', 'docker'],
+        description: 'Central image registry with vulnerability scanning.', createdAt: t0 - 300 * DAY },
+      { name: 'portail-rh', kind: 'Component', type: 'service', owner: 'team-web',
+        lifecycle: 'staging', system: 'human-resources', tags: ['staging', 'size-m'],
+        description: 'Project provisioned via request REQ-1037.', createdAt: t0 - 3 * DAY, fromRequest: 'REQ-1037' },
+      { name: 'portail-rh-postgresql', kind: 'Resource', type: 'database', owner: 'team-web',
+        lifecycle: 'staging', system: 'human-resources', tags: ['postgresql'],
+        description: 'Managed PostgreSQL database for portail-rh project.', createdAt: t0 - 3 * DAY, fromRequest: 'REQ-1037' },
     ],
     requests: [
       {
-        id: 'REQ-1037', name: 'portail-rh', team: 'équipe-web', requester: 'Marie Lambert',
-        description: 'Refonte du portail RH interne (congés, notes de frais).',
+        id: 'REQ-1037', name: 'portail-rh', team: 'team-web', requester: 'Marie Lambert',
+        description: 'Internal HR portal redesign (leave, expense reports).',
         env: 'staging', size: 'M',
         network: 'FR', hypervisor: 'vmware',
         resources: { rancher: true, harbor: false, vm: true, vmCount: 1, postgres: true, mongo: false },
         status: 'available', createdAt: t0 - 3 * DAY,
-        comment: 'Validé pour la recette. Prévoir une demande dédiée pour la production.',
+        comment: 'Approved for staging. Plan a dedicated request for production.',
         history: [
-          { ts: t0 - 3 * DAY, label: 'Demande envoyée par Marie Lambert' },
-          { ts: t0 - 3 * DAY + 2 * HOUR, label: 'Approuvée par Antoine Durand' },
-          { ts: t0 - 3 * DAY + 2 * HOUR + 4 * MIN, label: 'Provisionnement terminé — ressources disponibles' },
+          { ts: t0 - 3 * DAY, label: 'Request submitted by Marie Lambert' },
+          { ts: t0 - 3 * DAY + 2 * HOUR, label: 'Approved by Antoine Durand' },
+          { ts: t0 - 3 * DAY + 2 * HOUR + 4 * MIN, label: 'Provisioning completed — resources available' },
         ],
         prov: null,
       },
       {
-        id: 'REQ-1039', name: 'sandbox-data', team: 'équipe-data', requester: 'Karim Benali',
-        description: 'Bac à sable pour tests de modèles de scoring.',
+        id: 'REQ-1039', name: 'sandbox-data', team: 'team-data', requester: 'Karim Benali',
+        description: 'Sandbox for scoring model tests.',
         env: 'dev', size: 'L',
         network: 'IT', hypervisor: 'hyperv',
         resources: { rancher: true, harbor: true, vm: true, vmCount: 4, postgres: false, mongo: true },
         status: 'rejected', createdAt: t0 - DAY,
-        comment: 'Dimensionnement trop important pour un bac à sable : merci de repasser en taille S et d’utiliser l’offre data mutualisée.',
+        comment: 'Sizing too large for a sandbox: please resubmit with size S and use the shared data offering.',
         history: [
-          { ts: t0 - DAY, label: 'Demande envoyée par Karim Benali' },
-          { ts: t0 - DAY + 5 * HOUR, label: 'Refusée par Antoine Durand' },
+          { ts: t0 - DAY, label: 'Request submitted by Karim Benali' },
+          { ts: t0 - DAY + 5 * HOUR, label: 'Rejected by Antoine Durand' },
         ],
         prov: null,
       },
     ],
     activity: [
-      { ts: t0 - 3 * DAY, icon: '📨', text: 'Marie Lambert a soumis la demande REQ-1037 (portail-rh).' },
-      { ts: t0 - 3 * DAY + 2 * HOUR, icon: '✅', text: 'Antoine Durand a approuvé la demande REQ-1037.' },
-      { ts: t0 - 3 * DAY + 2 * HOUR + 4 * MIN, icon: '🚀', text: 'Provisionnement de portail-rh terminé : 4 ressources créées.' },
-      { ts: t0 - DAY + 5 * HOUR, icon: '⛔', text: 'Antoine Durand a refusé la demande REQ-1039 (sandbox-data).' },
+      { ts: t0 - 3 * DAY, icon: '📨', text: 'Marie Lambert submitted request REQ-1037 (portail-rh).' },
+      { ts: t0 - 3 * DAY + 2 * HOUR, icon: '✅', text: 'Antoine Durand approved request REQ-1037.' },
+      { ts: t0 - 3 * DAY + 2 * HOUR + 4 * MIN, icon: '🚀', text: 'Provisioning of portail-rh completed: 4 resources created.' },
+      { ts: t0 - DAY + 5 * HOUR, icon: '⛔', text: 'Antoine Durand rejected request REQ-1039 (sandbox-data).' },
     ],
   };
 }
@@ -529,25 +527,25 @@ function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) return JSON.parse(raw);
-  } catch (e) { /* stockage indisponible ou corrompu : on repart de zéro */ }
+  } catch (e) { /* storage unavailable or corrupted: starting fresh */ }
   return defaultState();
 }
 
 function saveState() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* mode privé, etc. */ }
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* private mode, etc. */ }
 }
 
 let state = loadState();
 
-/* État d'interface (non persisté) : page courante de chaque volet + assistant */
+/* UI state (not persisted): current page of each pane + wizard */
 const ui = {
   user:  { page: 'catalog', entity: null, request: null, filterKind: 'all', filterOwner: 'all', search: '', templateSearch: '', templateCategory: 'all' },
   admin: { page: 'inbox', request: null, filter: 'all' },
-  wizard: null, // créé à l'ouverture du template
+  wizard: null, // created when the template is opened
 };
 
 /* ============================================================
-   3. Utilitaires
+   3. Utilities
    ============================================================ */
 
 const $ = sel => document.querySelector(sel);
@@ -558,26 +556,26 @@ function esc(s) {
 }
 
 function euro(n) {
-  return n.toLocaleString('fr-FR', { maximumFractionDigits: 0 }) + ' €';
+  return '€' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
 function fmtDate(ts) {
-  return new Date(ts).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  return new Date(ts).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 function timeAgo(ts) {
   const d = now() - ts;
-  if (d < MIN) return 'à l’instant';
-  if (d < HOUR) return `il y a ${Math.floor(d / MIN)} min`;
-  if (d < DAY) return `il y a ${Math.floor(d / HOUR)} h`;
-  return `il y a ${Math.floor(d / DAY)} j`;
+  if (d < MIN) return 'just now';
+  if (d < HOUR) return `${Math.floor(d / MIN)} min ago`;
+  if (d < DAY) return `${Math.floor(d / HOUR)}h ago`;
+  return `${Math.floor(d / DAY)}d ago`;
 }
 
 function clock() {
-  return new Date().toLocaleTimeString('fr-FR', { hour12: false });
+  return new Date().toLocaleTimeString('en-GB', { hour12: false });
 }
 
-/* Notification éphémère (snackbar) dans l'un des deux volets */
+/* Ephemeral notification (snackbar) in one of the two panes */
 function toast(pane, message, type = 'info') {
   const box = document.getElementById(pane + '-toasts');
   const el = document.createElement('div');
@@ -594,32 +592,32 @@ function logActivity(icon, text) {
   state.activity.unshift({ ts: now(), icon, text });
 }
 
-/* Spécification « sur mesure » par défaut, par ressource */
+/* Default 'custom' specification per resource */
 const DEFAULT_CUSTOM = { cpu: 2, ram: 4, storage: 20 };
 
-/* Spécification sur mesure d'une ressource (clé : nom de ressource, ou « vm:<index> ») */
+/* Custom specification for a resource (key: resource name, or "vm:<index>") */
 function specFor(req, key) {
   return (req.customSpecs && req.customSpecs[key]) || DEFAULT_CUSTOM;
 }
 
-/* Tarif « sur mesure » simulé à partir des ressources unitaires choisies */
+/* Simulated 'custom' pricing from selected unit resources */
 function customPrice(c) {
   return Math.round((c?.cpu ?? 0) * 12 + (c?.ram ?? 0) * 6 + (c?.storage ?? 0) * 0.2);
 }
 
-/* Prix mensuel d'une ressource dimensionnée pour une taille donnée */
+/* Monthly price of a sized resource for a given size */
 function sizePrice(def, sz, custom) {
   if (sz === 'custom') return customPrice(custom);
   return def.prices?.[sz] ?? def.base;
 }
 
-/* Libellé de gabarit/plan d'une ressource pour une taille donnée */
+/* Template/plan label of a resource for a given size */
 function sizePlan(def, sz) {
-  if (sz === 'custom') return 'Sur mesure';
+  if (sz === 'custom') return 'Custom';
   return def.planLabels?.[sz] ?? sz;
 }
 
-/* Coût mensuel estimé d'une demande (tarifs réels HT) */
+/* Estimated monthly cost for a request (real prices excl. VAT) */
 function computeCost(req) {
   if (req.requestType === 'harbor-pull' || req.requestType === 'diode-push') return { lines: [], total: 0 };
   const r = req.resources;
@@ -667,7 +665,7 @@ function computeCost(req) {
   return { lines, total };
 }
 
-/* Liste lisible des ressources d'une demande */
+/* Human-readable list of resources in a request */
 function resourceSummary(req) {
   if (req.requestType === 'harbor-pull')
     return [`⚓ Pull: ${req.imageName || '?'}:${req.imageTag || 'latest'} → ${req.targetCluster || '?'}`];
@@ -688,9 +686,9 @@ function resourceSummary(req) {
   return out;
 }
 
-/* ---- Capacité & faisabilité (logique du plugin de gouvernance Ops) ---- */
+/* ---- Capacity & feasibility (Ops governance plugin logic) ---- */
 
-/* Empreinte d'un gabarit (ou spécification sur mesure) */
+/* Footprint of a template (or custom specification) */
 function footprintForSize(sz, custom) {
   if (sz === 'custom') {
     const c = custom || DEFAULT_CUSTOM;
@@ -699,7 +697,7 @@ function footprintForSize(sz, custom) {
   return SIZE_FOOTPRINT[sz] || SIZE_FOOTPRINT.S;
 }
 
-/* Empreinte totale d'une demande : ressources compute (région) + sous-total VM (hyperviseur) */
+/* Total footprint of a request: compute resources (region) + VM subtotal (hypervisor) */
 function computeFootprint(req) {
   if (req.requestType === 'harbor-pull' || req.requestType === 'diode-push')
     return { total: { cpu: 0, ram: 0, storage: 0 }, vm: { cpu: 0, ram: 0, storage: 0 } };
@@ -720,13 +718,13 @@ function computeFootprint(req) {
   return { total, vm };
 }
 
-/* Faut-il afficher le bloc faisabilité ? (au moins une ressource « compute ») */
+/* Should the feasibility block be shown? (at least one compute resource) */
 function feasShouldShow(req) {
   const f = computeFootprint(req).total;
   return !!(f.cpu || f.ram || f.storage);
 }
 
-/* Charge déjà engagée sur une région (référence + demandes actives), hors demande courante */
+/* Already committed load on a region (reference + active requests), excluding current request */
 function regionUsage(networkKey, excludeId) {
   const cap = CAPACITY[networkKey] || CAPACITY.FR;
   const used = { ...cap.used };
@@ -750,7 +748,7 @@ const DIMS = ['cpu', 'ram', 'storage'];
 function fits(pool, used, req) { return DIMS.every(d => used[d] + req[d] <= pool[d]); }
 function tightness(pool, used, req) { return Math.max(...DIMS.map(d => (used[d] + req[d]) / pool[d])); }
 
-/* Évalue la faisabilité d'une demande au regard de la capacité disponible */
+/* Evaluates the feasibility of a request against available capacity */
 function assessFeasibility(req) {
   const net = req.network || 'FR';
   const cap = CAPACITY[net] || CAPACITY.FR;
@@ -788,7 +786,7 @@ function assessFeasibility(req) {
 }
 
 /* ============================================================
-   4. Petits composants HTML réutilisables
+   4. Reusable HTML components
    ============================================================ */
 
 function statusChip(key) {
@@ -801,7 +799,7 @@ function chips(tags, cls = '') {
 }
 
 
-/* Header de page façon Backstage : breadcrumbs + titre + métadonnées */
+/* Backstage-style page header: breadcrumbs + title + metadata */
 function pageHeader(theme, { crumbs, title, subtitle, meta = [], actions = '' }) {
   const bc = crumbs && crumbs.length
     ? `<div class="breadcrumbs">${crumbs.map((c, i) =>
@@ -836,10 +834,10 @@ function emptyState(icon, title, text) {
     </div>`;
 }
 
-/* Nombre formaté (séparateur de milliers) */
-function fmtNum(n) { return Math.round(n).toLocaleString('fr-FR'); }
+/* Formatted number (thousands separator) */
+function fmtNum(n) { return Math.round(n).toLocaleString('en-US'); }
 
-/* Une barre de capacité : charge existante + demande, sur la capacité totale */
+/* A capacity bar: existing load + request, over total capacity */
 function capRow(label, unit, pool, used, req) {
   const over = used + req > pool;
   const usedW = Math.min(100, used / pool * 100);
@@ -849,14 +847,14 @@ function capRow(label, unit, pool, used, req) {
     <div class="cap-row">
       <div class="cap-row__label">
         <span>${label}</span>
-        <span>demande <strong style="color:${over ? 'var(--bs-error)' : 'var(--bs-text)'}">${fmtNum(req)} ${unit}</strong>
-          · libre ${fmtNum(free)} / ${fmtNum(pool)} ${unit}</span>
+        <span>request <strong style="color:${over ? 'var(--bs-error)' : 'var(--bs-text)'}">${fmtNum(req)} ${unit}</strong>
+          · free ${fmtNum(free)} / ${fmtNum(pool)} ${unit}</span>
       </div>
-      <div class="cap-bar" title="${fmtNum(used)} ${unit} utilisés · ${fmtNum(req)} ${unit} demandés · ${fmtNum(pool)} ${unit} au total">
+      <div class="cap-bar" title="${fmtNum(used)} ${unit} used · ${fmtNum(req)} ${unit} requested · ${fmtNum(pool)} ${unit} total">
         <div class="cap-bar__seg cap-bar__used" style="width:${usedW}%"></div>
         <div class="cap-bar__seg cap-bar__req ${over ? 'cap-bar__req--over' : ''}" style="width:${reqW}%"></div>
       </div>
-      ${over ? `<div class="cap-over">⛔ Dépassement de ${fmtNum(used + req - pool)} ${unit}</div>` : ''}
+      ${over ? `<div class="cap-over">⛔ Overrun by ${fmtNum(used + req - pool)} ${unit}</div>` : ''}
     </div>`;
 }
 
@@ -865,53 +863,53 @@ function capPool(name, pool, used, req) {
     <div class="cap-pool">
       <div class="cap-pool__name">${name}</div>
       ${capRow('vCPU', 'vCPU', pool.cpu, used.cpu, req.cpu)}
-      ${capRow('Mémoire', 'Go', pool.ram, used.ram, req.ram)}
-      ${capRow('Stockage', 'Go', pool.storage, used.storage, req.storage)}
+      ${capRow('Memory', 'GB', pool.ram, used.ram, req.ram)}
+      ${capRow('Storage', 'GB', pool.storage, used.storage, req.storage)}
     </div>`;
 }
 
-/* Carte « Capacité & faisabilité » (vue Ops) ou aperçu compact (assistant) */
+/* "Capacity & feasibility" card (Ops view) or compact preview (wizard) */
 function feasibilityCard(req, opts = {}) {
   const a = assessFeasibility(req);
   const netLabel = `${NETWORKS[a.net].flag} ${NETWORKS[a.net].label}`;
   const v = {
-    ok:    ['cap-verdict--ok',    '✅ Réalisable'],
-    tight: ['cap-verdict--tight', '⚠️ Capacité tendue'],
-    no:    ['cap-verdict--no',    '⛔ Insuffisant'],
+    ok:    ['cap-verdict--ok',    '✅ Feasible'],
+    tight: ['cap-verdict--tight', '⚠️ Tight capacity'],
+    no:    ['cap-verdict--no',    '⛔ Insufficient'],
   }[a.level];
   const hvName = a.hv
-    ? (a.hv.key === 'auto' ? 'Tous hyperviseurs (placement auto)' : `${HYPERVISORS[a.hv.key].icon} ${HYPERVISORS[a.hv.key].label}`)
+    ? (a.hv.key === 'auto' ? 'All hypervisors (auto placement)' : `${HYPERVISORS[a.hv.key].icon} ${HYPERVISORS[a.hv.key].label}`)
     : null;
   const meta = `
     <div class="cap-head">
-      <div class="muted">Cible : <strong style="color:var(--bs-text)">${netLabel}</strong>${hvName ? ` · ${hvName}` : ''}</div>
-      <div class="muted" style="margin-top:4px;">Empreinte : <strong style="color:var(--bs-text)">${fmtNum(a.fp.total.cpu)} vCPU</strong> · <strong style="color:var(--bs-text)">${fmtNum(a.fp.total.ram)} Go RAM</strong> · <strong style="color:var(--bs-text)">${fmtNum(a.fp.total.storage)} Go stockage</strong></div>
+      <div class="muted">Target: <strong style="color:var(--bs-text)">${netLabel}</strong>${hvName ? ` · ${hvName}` : ''}</div>
+      <div class="muted" style="margin-top:4px;">Footprint: <strong style="color:var(--bs-text)">${fmtNum(a.fp.total.cpu)} vCPU</strong> · <strong style="color:var(--bs-text)">${fmtNum(a.fp.total.ram)} GB RAM</strong> · <strong style="color:var(--bs-text)">${fmtNum(a.fp.total.storage)} GB storage</strong></div>
     </div>`;
   const bars = `
     <div class="cap-legend">
-      <span class="lg-used">Charge existante</span>
-      <span class="lg-req">Cette demande</span>
-      <span class="lg-free">Disponible</span>
+      <span class="lg-used">Existing load</span>
+      <span class="lg-req">This request</span>
+      <span class="lg-free">Available</span>
     </div>
     <div class="cap">
-      ${capPool(`Pool région — ${NETWORKS[a.net].label}`, a.region.pool, a.region.used, a.region.req)}
-      ${a.hv ? capPool(`Pool hyperviseur — ${a.hv.key === 'auto' ? 'agrégé' : HYPERVISORS[a.hv.key].label}`, a.hv.pool, a.hv.used, a.hv.req) : ''}
+      ${capPool(`Region pool — ${NETWORKS[a.net].label}`, a.region.pool, a.region.used, a.region.req)}
+      ${a.hv ? capPool(`Hypervisor pool — ${a.hv.key === 'auto' ? 'aggregated' : HYPERVISORS[a.hv.key].label}`, a.hv.pool, a.hv.used, a.hv.req) : ''}
     </div>
-    ${a.level === 'no' ? `<div class="banner banner--error" style="margin:14px 0 0;">⛔ <span>Capacité insuffisante sur <strong>${netLabel}</strong>. Réduisez le dimensionnement ou le nombre de VM, ou changez de région / d’hyperviseur.</span></div>` : ''}
-    ${a.level === 'tight' ? `<div class="banner banner--warning" style="margin:14px 0 0;">⚠️ <span>Réalisable, mais consomme une large part de la capacité restante.</span></div>` : ''}`;
+    ${a.level === 'no' ? `<div class="banner banner--error" style="margin:14px 0 0;">⛔ <span>Insufficient capacity on <strong>${netLabel}</strong>. Reduce sizing or VM count, or change region / hypervisor.</span></div>` : ''}
+    ${a.level === 'tight' ? `<div class="banner banner--warning" style="margin:14px 0 0;">⚠️ <span>Feasible, but consumes a large share of remaining capacity.</span></div>` : ''}`;
 
   if (opts.compact) {
     return `
       <div class="cap-card cap-card--inline">
-        <div class="cap-card__bar"><span class="card__title" style="font-size:14px;">Faisabilité</span><span class="cap-verdict ${v[0]}">${v[1]}</span></div>
+        <div class="cap-card__bar"><span class="card__title" style="font-size:14px;">Feasibility</span><span class="cap-verdict ${v[0]}">${v[1]}</span></div>
         ${meta}${bars}
       </div>`;
   }
   return `
     <div class="card">
       <div class="card__header">
-        <div><span class="card__title">Capacité &amp; faisabilité</span>
-          <div class="card__subtitle">Plugin Ops — inventaire infrastructure (simulé)</div></div>
+        <div><span class="card__title">Capacity &amp; feasibility</span>
+          <div class="card__subtitle">Ops plugin — infrastructure inventory (simulated)</div></div>
         <span class="cap-verdict ${v[0]}">${v[1]}</span>
       </div>
       <div class="card__body">${meta}${bars}</div>
@@ -919,7 +917,7 @@ function feasibilityCard(req, opts = {}) {
 }
 
 /* ============================================================
-   5. Vue utilisateur
+   5. User view
    ============================================================ */
 
 function renderUser() {
@@ -936,7 +934,7 @@ function renderUser() {
   syncSidebar('user');
 }
 
-/* ---- 5.1 Catalogue ---- */
+/* ---- 5.1 Catalog ---- */
 function userCatalogPage() {
   const f = ui.user;
   const owners = [...new Set(state.entities.map(e => e.owner))].sort();
@@ -965,22 +963,22 @@ function userCatalogPage() {
 
   return `
     ${pageHeader('user', {
-      title: 'Catalogue Internal Cloud Factory',
-      subtitle: 'Software Catalog · composants, ressources et APIs de l’entreprise',
-      meta: [['Mode', 'maquette'], ['Entités', String(state.entities.length)]],
+      title: 'Internal Cloud Factory Catalog',
+      subtitle: 'Software Catalog · company components, resources and APIs',
+      meta: [['Mode', 'demo'], ['Entities', String(state.entities.length)]],
     })}
     <div class="content content--with-filters">
       <aside class="filters card" style="padding:14px;">
         <div class="filter-group">
-          <span class="label">Type d'entité</span>
-          ${[['all', 'Toutes'], ['Component', 'Components'], ['Resource', 'Resources']].map(([k, lbl]) => `
+          <span class="label">Entity type</span>
+          ${[['all', 'All'], ['Component', 'Components'], ['Resource', 'Resources']].map(([k, lbl]) => `
             <div class="filter-option ${f.filterKind === k ? 'is-active' : ''}" data-action="filter-kind" data-arg="${k}">
               <span>${lbl}</span><span class="count">${countBy(k)}</span>
             </div>`).join('')}
         </div>
         <div class="filter-group">
-          <span class="label">Propriétaire</span>
-          <div class="filter-option ${f.filterOwner === 'all' ? 'is-active' : ''}" data-action="filter-owner" data-arg="all"><span>Tous</span></div>
+          <span class="label">Owner</span>
+          <div class="filter-option ${f.filterOwner === 'all' ? 'is-active' : ''}" data-action="filter-owner" data-arg="all"><span>All</span></div>
           ${owners.map(o => `
             <div class="filter-option ${f.filterOwner === o ? 'is-active' : ''}" data-action="filter-owner" data-arg="${esc(o)}">
               <span>${esc(o)}</span>
@@ -990,23 +988,23 @@ function userCatalogPage() {
 
       <div class="card">
         <div class="table-toolbar">
-          <span class="table-toolbar__count">${list.length} entité${list.length > 1 ? 's' : ''}</span>
+          <span class="table-toolbar__count">${list.length} entit${list.length > 1 ? 'ies' : 'y'}</span>
           <span class="table-toolbar__spacer"></span>
           <label class="search-field">
             <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5z"/></svg>
-            <input type="text" id="catalog-search" placeholder="Filtrer" value="${esc(f.search)}" data-input="catalog-search">
+            <input type="text" id="catalog-search" placeholder="Filter" value="${esc(f.search)}" data-input="catalog-search">
           </label>
-          <button class="btn btn--primary" data-action="goto-create">+ Créer</button>
+          <button class="btn btn--primary" data-action="goto-create">+ Create</button>
         </div>
         <div class="table-wrap">
           ${list.length ? `
           <table class="bs-table">
             <thead><tr>
-              <th>Nom</th><th>Système</th><th>Propriétaire</th><th>Type</th>
-              <th>Cycle de vie</th><th>Description</th><th>Tags</th>
+              <th>Name</th><th>System</th><th>Owner</th><th>Type</th>
+              <th>Lifecycle</th><th>Description</th><th>Tags</th>
             </tr></thead>
             <tbody>${rows}</tbody>
-          </table>` : emptyState('🔭', 'Aucune entité trouvée', 'Modifiez vos filtres ou créez un nouveau composant depuis un template.')}
+          </table>` : emptyState('🔭', 'No entities found', 'Adjust your filters or create a new component from a template.')}
         </div>
       </div>
     </div>`;
@@ -1014,7 +1012,7 @@ function userCatalogPage() {
 
 function isRecent(e) { return now() - e.createdAt < 2 * HOUR; }
 
-/* ---- 5.2 Page d'une entité ---- */
+/* ---- 5.2 Entity page ---- */
 function userEntityPage() {
   const e = state.entities.find(x => x.name === ui.user.entity);
   if (!e) { ui.user.page = 'catalog'; return userCatalogPage(); }
@@ -1023,51 +1021,51 @@ function userEntityPage() {
 
   return `
     ${pageHeader('user', {
-      crumbs: [{ label: 'Catalogue', action: 'goto-catalog' }, { label: e.name }],
+      crumbs: [{ label: 'Catalog', action: 'goto-catalog' }, { label: e.name }],
       title: e.name,
       subtitle: `${e.kind} — ${esc(e.type)}`,
-      meta: [['Propriétaire', esc(e.owner)], ['Cycle de vie', esc(e.lifecycle)]],
+      meta: [['Owner', esc(e.owner)], ['Lifecycle', esc(e.lifecycle)]],
     })}
     <div class="tabs">
-      <button class="tab is-active">Aperçu</button>
+      <button class="tab is-active">Overview</button>
       <button class="tab" data-action="not-included">CI/CD</button>
-      <button class="tab" data-action="not-included">Dépendances</button>
+      <button class="tab" data-action="not-included">Dependencies</button>
       <button class="tab" data-action="not-included">Docs</button>
     </div>
     <div class="content">
       <div class="card">
-        <div class="card__header"><span class="card__title">À propos</span>
-          <button class="btn btn--text" data-action="not-included">Modifier</button></div>
+        <div class="card__header"><span class="card__title">About</span>
+          <button class="btn btn--text" data-action="not-included">Edit</button></div>
         <div class="card__body">
           <div class="kv-grid">
             <div class="kv--full"><span class="label">Description</span><span class="value">${esc(e.description)}</span></div>
-            <div><span class="label">Propriétaire</span><span class="value"><a>${esc(e.owner)}</a></span></div>
-            <div><span class="label">Système</span><span class="value">${esc(e.system || '—')}</span></div>
+            <div><span class="label">Owner</span><span class="value"><a>${esc(e.owner)}</a></span></div>
+            <div><span class="label">System</span><span class="value">${esc(e.system || '—')}</span></div>
             <div><span class="label">Type</span><span class="value">${esc(e.type)}</span></div>
-            <div><span class="label">Cycle de vie</span><span class="value">${esc(e.lifecycle)}</span></div>
+            <div><span class="label">Lifecycle</span><span class="value">${esc(e.lifecycle)}</span></div>
             <div class="kv--full"><span class="label">Tags</span><span class="value">${chips(e.tags) || '—'}</span></div>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card__header"><span class="card__title">État du service</span></div>
+        <div class="card__header"><span class="card__title">Service status</span></div>
         <div class="card__body">
           <div class="kv-grid">
-            <div><span class="label">Disponibilité (30 j)</span><span class="value" style="color:#14632f;font-weight:700;">99,95 %</span></div>
-            <div><span class="label">Statut</span><span class="value"><span class="status status--available">Opérationnel</span></span></div>
-            <div><span class="label">Incidents ouverts</span><span class="value">0</span></div>
-            ${req ? `<div><span class="label">Demande d'origine</span><span class="value"><a data-action="open-request" data-arg="${esc(req.id)}">${esc(req.id)}</a></span></div>` : ''}
+            <div><span class="label">Availability (30d)</span><span class="value" style="color:#14632f;font-weight:700;">99.95%</span></div>
+            <div><span class="label">Status</span><span class="value"><span class="status status--available">Operational</span></span></div>
+            <div><span class="label">Open incidents</span><span class="value">0</span></div>
+            ${req ? `<div><span class="label">Source request</span><span class="value"><a data-action="open-request" data-arg="${esc(req.id)}">${esc(req.id)}</a></span></div>` : ''}
           </div>
         </div>
       </div>
 
       ${related.length ? `
       <div class="card">
-        <div class="card__header"><span class="card__title">Ressources du même projet</span></div>
+        <div class="card__header"><span class="card__title">Resources from the same project</span></div>
         <div class="card__body--flush table-wrap">
           <table class="bs-table">
-            <thead><tr><th>Nom</th><th>Type</th><th>Cycle de vie</th><th>Description</th></tr></thead>
+            <thead><tr><th>Name</th><th>Type</th><th>Lifecycle</th><th>Description</th></tr></thead>
             <tbody>
               ${related.map(x => `
                 <tr class="is-clickable" data-action="open-entity" data-arg="${esc(x.name)}">
@@ -1083,13 +1081,13 @@ function userEntityPage() {
     </div>`;
 }
 
-/* ---- 5.3 Page « Créer… » : galerie de templates ---- */
+/* ---- 5.3 'Create…' page: template gallery ---- */
 function userTemplatesPage() {
   const search = ui.user.templateSearch || '';
   const cat = ui.user.templateCategory || 'all';
   const CAT_COLORS = { infra: '#134a7c', app: '#1a6b3a', data: '#7b3a0e', docs: '#4a1a7c' };
   const TPL_CATS = [
-    ['all', 'Tous'], ['infra', 'Infrastructure'], ['app', 'Application'],
+    ['all', 'All'], ['infra', 'Infrastructure'], ['app', 'Application'],
     ['data', 'Data'], ['docs', 'Documentation'],
   ];
   let filtered = TEMPLATES;
@@ -1108,7 +1106,7 @@ function userTemplatesPage() {
             <div class="tpl-card__type">${esc(t.type)}</div>
             <div class="tpl-card__title">${esc(t.title)}</div>
           </div>
-          ${t.isNew ? '<span class="tpl-card__badge">Nouveau</span>' : ''}
+          ${t.isNew ? '<span class="tpl-card__badge">New</span>' : ''}
         </div>
         <div class="tpl-card__body">
           <p class="tpl-card__desc">${esc(t.desc)}</p>
@@ -1117,26 +1115,26 @@ function userTemplatesPage() {
         <div class="tpl-card__meta">
           <span class="tpl-card__meta-item">👤 ${esc(t.owner)}</span>
           <span class="tpl-card__meta-item">${esc(t.version)}</span>
-          <span class="tpl-card__meta-item">🔧 ${t.usageCount} util.</span>
+          <span class="tpl-card__meta-item">🔧 ${t.usageCount} uses</span>
           ${t.duration ? `<span class="tpl-card__meta-item">⏱ ${esc(t.duration)}</span>` : ''}
         </div>
         <div class="tpl-card__foot">
           <button class="btn ${t.enabled ? 'btn--primary' : 'btn--outline'}"
                   data-action="${t.enabled ? (t.action || 'open-wizard') : 'not-included'}"
                   data-arg="${t.enabled ? (t.wizardType || t.resourceKey || '') : ''}">
-            ${t.enabled ? 'Choisir' : 'Bientôt disponible'}
+            ${t.enabled ? 'Choose' : 'Coming soon'}
           </button>
         </div>
       </article>`;
   };
   return `
     ${pageHeader('user', {
-      title: 'Créer un nouveau composant',
-      subtitle: 'Software Templates · démarrez un projet à partir d’un modèle approuvé par l’équipe plateforme',
+      title: 'Create a new component',
+      subtitle: 'Software Templates · start a project from a model approved by the platform team',
     })}
     <div class="tabs">
       <button class="tab is-active">Templates</button>
-      <button class="tab" data-action="not-included">Tâches</button>
+      <button class="tab" data-action="not-included">Tasks</button>
     </div>
     <div class="tpl-toolbar">
       <div class="tpl-cats">
@@ -1145,20 +1143,20 @@ function userTemplatesPage() {
       </div>
       <label class="search-field">
         <svg viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5z"/></svg>
-        <input type="text" placeholder="Rechercher un template…" value="${esc(search)}" data-input="tpl-search">
+        <input type="text" placeholder="Search templates…" value="${esc(search)}" data-input="tpl-search">
       </label>
     </div>
     <div class="content">
-      ${filtered.length ? '<div class="banner banner--info">ℹ️ <span>Les templates appliquent automatiquement les standards de sécurité, de nommage et de supervision de l’entreprise.</span></div>' : ''}
+      ${filtered.length ? '<div class="banner banner--info">ℹ️ <span>Les templates appliquent automatiquement company security, naming and monitoring standards.</span></div>' : ''}
       ${filtered.length
         ? `<div class="cards-grid">${filtered.map(card).join('')}</div>`
-        : emptyState('🔍', 'Aucun template trouvé', 'Modifiez votre recherche ou sélectionnez une autre catégorie.')}
+        : emptyState('🔍', 'No template found', 'Adjust your search or select a different category.')}
     </div>`;
 }
 
-/* ---- 5.4 Assistant multi-étapes (Software Template) ---- */
+/* ---- 5.4 Multi-step wizard (Software Template) ---- */
 
-const WIZARD_STEPS = ['Informations', 'Environnement', 'Ressources', 'Dimensionnement', 'Résumé', 'Envoi'];
+const WIZARD_STEPS = ['Information', 'Environment', 'Resources', 'Sizing', 'Summary', 'Submit'];
 
 function newWizard(resourceKey) {
   const isBundle = !resourceKey;
@@ -1170,8 +1168,8 @@ function newWizard(resourceKey) {
     resourceKey:      resourceKey || null,
     templateTitle:    isBundle ? 'Bundle' : (def.icon + ' ' + def.label),
     templateSubtitle: isBundle
-      ? 'Template géré par équipe-plateforme · v2.4'
-      : 'Provisionnement individuel · équipe-plateforme · v1.0',
+      ? 'Template managed by team-platform · v2.4'
+      : 'Individual provisioning · team-platform · v1.0',
     data: {
       name: '', team: TEAMS[0], description: '',
       env: 'dev', size: 'S',
@@ -1201,14 +1199,14 @@ function newWizard(resourceKey) {
 }
 
 const IMAGE_WIZARD_STEPS = {
-  'harbor-pull': ['Identification', 'Image source', 'Destination', 'Résumé', 'Envoi'],
-  'diode-push':  ['Identification', 'Image source', 'Destination', 'Classification', 'Résumé', 'Envoi'],
+  'harbor-pull': ['Identification', 'Source image', 'Destination', 'Summary', 'Submit'],
+  'diode-push':  ['Identification', 'Source image', 'Destination', 'Classification', 'Summary', 'Submit'],
 };
 
 function newImageWizard(type) {
   const meta = {
-    'harbor-pull': { title: '⚓ Pull image Harbor',       subtitle: 'Rapatriement d\'image · équipe-plateforme · v1.2' },
-    'diode-push':  { title: '🔒 Push vers réseau sous diode', subtitle: 'Transfert sécurisé sous diode · équipe-plateforme · v1.0' },
+    'harbor-pull': { title: '⚓ Harbor image pull',       subtitle: 'Image pull · team-platform · v1.2' },
+    'diode-push':  { title: '🔒 Push to diode network', subtitle: 'Secure diode transfer · team-platform · v1.0' },
   };
   const m = meta[type] || meta['harbor-pull'];
   return {
@@ -1250,7 +1248,7 @@ function imageWizardPage() {
 
   return `
     ${pageHeader('user', {
-      crumbs: [{ label: 'Créer…', action: 'goto-create' }, { label: w.templateTitle }],
+      crumbs: [{ label: 'Create…', action: 'goto-create' }, { label: w.templateTitle }],
       title: w.templateTitle,
       subtitle: w.templateSubtitle,
     })}
@@ -1264,13 +1262,13 @@ function imageWizardPage() {
           <div class="wizard-actions">
             <div>
               ${w.step > 0
-                ? '<button class="btn btn--text" data-action="img-wiz-prev">Précédent</button>'
-                : '<button class="btn btn--text" data-action="goto-create">Annuler</button>'}
+                ? '<button class="btn btn--text" data-action="img-wiz-prev">Previous</button>'
+                : '<button class="btn btn--text" data-action="goto-create">Cancel</button>'}
             </div>
             <div>
               ${isSummary
-                ? '<button class="btn btn--success" data-action="img-wiz-submit">📨 Envoyer la demande</button>'
-                : '<button class="btn btn--primary" data-action="img-wiz-next">Suivant</button>'}
+                ? '<button class="btn btn--success" data-action="img-wiz-submit">📨 Submit request</button>'
+                : '<button class="btn btn--primary" data-action="img-wiz-next">Next</button>'}
             </div>
           </div>`}
         </div>
@@ -1278,23 +1276,23 @@ function imageWizardPage() {
     </div>`;
 }
 
-/* ---- Étapes de l'assistant image ---- */
+/* ---- Image wizard steps ---- */
 
 function imgWizStepId() {
   const d = ui.wizard.data;
   return `
     <div class="wiz-section">
-      <h3 class="wiz-section__title">Identification de la demande</h3>
+      <h3 class="wiz-section__title">Request identification</h3>
       <div class="form-row">
-        <label class="field-label">Équipe demandeuse</label>
+        <label class="field-label">Requesting team</label>
         <select class="field-select" data-input="img-wiz-team">
           ${TEAMS.map(t => `<option value="${esc(t)}" ${d.team === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
         </select>
       </div>
       <div class="form-row">
-        <label class="field-label">Justification / ticket de référence <span style="color:var(--bs-danger)">*</span></label>
+        <label class="field-label">Justification / reference ticket <span style="color:var(--bs-danger)">*</span></label>
         <textarea rows="3" class="field-textarea" style="font-family:inherit;font-size:14px;padding:8px;border:1px solid var(--bs-border);border-radius:6px;width:100%;resize:vertical;"
-                  placeholder="Décrivez le besoin et joignez un numéro de ticket si disponible…"
+                  placeholder="Describe the need and attach a ticket number if available…"
                   data-input="img-wiz-justification">${esc(d.justification)}</textarea>
       </div>
     </div>`;
@@ -1307,31 +1305,31 @@ function imgWizStepImage() {
   )];
   return `
     <div class="wiz-section">
-      <h3 class="wiz-section__title">Image source (registre Harbor)</h3>
+      <h3 class="wiz-section__title">Source image (Harbor registry)</h3>
       <div class="form-row">
-        <label class="field-label">Projet Harbor <span style="color:var(--bs-danger)">*</span></label>
+        <label class="field-label">Harbor project <span style="color:var(--bs-danger)">*</span></label>
         ${harbProjects.length ? `
         <select class="field-select" data-input="img-wiz-project">
-          <option value="">— Sélectionner un projet —</option>
+          <option value="">— Select a project —</option>
           ${harbProjects.map(p => `<option value="${esc(p)}" ${d.harborProject === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}
-          <option value="__custom__" ${!harbProjects.includes(d.harborProject) && d.harborProject && d.harborProject !== '__custom__' ? 'selected' : ''}>Autre projet (saisir manuellement)</option>
+          <option value="__custom__" ${!harbProjects.includes(d.harborProject) && d.harborProject && d.harborProject !== '__custom__' ? 'selected' : ''}>Other project (enter manually)</option>
         </select>
         ${(!harbProjects.includes(d.harborProject) && d.harborProject && d.harborProject !== '__custom__') || d.harborProject === '__custom__' ? `
         <input type="text" class="field-input" style="margin-top:6px;" placeholder="nom-du-projet"
                data-input="img-wiz-project-custom" value="${esc(d.harborProject === '__custom__' ? '' : d.harborProject)}">` : ''}` : `
-        <input type="text" class="field-input" placeholder="ex. équipe-web/portail-client"
+        <input type="text" class="field-input" placeholder="e.g. team-web/customer-portal"
                data-input="img-wiz-project" value="${esc(d.harborProject)}">`}
       </div>
       <div class="form-row">
-        <label class="field-label">Nom de l\'image <span style="color:var(--bs-danger)">*</span></label>
-        <input type="text" class="field-input" placeholder="ex. mon-app-backend"
+        <label class="field-label">Image name <span style="color:var(--bs-danger)">*</span></label>
+        <input type="text" class="field-input" placeholder="e.g. my-backend-app"
                data-input="img-wiz-image" value="${esc(d.imageName)}">
       </div>
       <div class="form-row">
         <label class="field-label">Tag <span style="color:var(--bs-danger)">*</span></label>
-        <input type="text" class="field-input" placeholder="ex. v1.4.2 ou latest"
+        <input type="text" class="field-input" placeholder="e.g. v1.4.2 or latest"
                data-input="img-wiz-tag" value="${esc(d.imageTag)}">
-        <div class="field-hint muted" style="margin-top:4px;font-size:12px;">Référence complète : harbor.internal/${esc(d.harborProject || '<projet>')}/${esc(d.imageName || '<image>')}:${esc(d.imageTag || 'latest')}</div>
+        <div class="field-hint muted" style="margin-top:4px;font-size:12px;">Full reference: harbor.internal/${esc(d.harborProject || '<project>')}/${esc(d.imageName || '<image>')}:${esc(d.imageTag || 'latest')}</div>
       </div>
     </div>`;
 }
@@ -1343,14 +1341,14 @@ function imgWizStepCluster() {
   )];
   return `
     <div class="wiz-section">
-      <h3 class="wiz-section__title">Destination (cluster Rancher)</h3>
+      <h3 class="wiz-section__title">Destination (Rancher cluster)</h3>
       <div class="form-row">
-        <label class="field-label">Cluster cible <span style="color:var(--bs-danger)">*</span></label>
+        <label class="field-label">Target cluster <span style="color:var(--bs-danger)">*</span></label>
         ${clusters.length ? `
         <select class="field-select" data-input="img-wiz-cluster">
-          <option value="">— Sélectionner un cluster —</option>
+          <option value="">— Select a cluster —</option>
           ${clusters.map(c => `<option value="${esc(c)}" ${d.targetCluster === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
-          <option value="__custom__" ${!clusters.includes(d.targetCluster) && d.targetCluster ? 'selected' : ''}>Autre cluster</option>
+          <option value="__custom__" ${!clusters.includes(d.targetCluster) && d.targetCluster ? 'selected' : ''}>Other cluster</option>
         </select>
         ${(!clusters.includes(d.targetCluster) && d.targetCluster) ? `
         <input type="text" class="field-input" style="margin-top:6px;" placeholder="nom-du-cluster"
@@ -1359,8 +1357,8 @@ function imgWizStepCluster() {
                data-input="img-wiz-cluster" value="${esc(d.targetCluster)}">`}
       </div>
       <div class="form-row">
-        <label class="field-label">Namespace cible</label>
-        <input type="text" class="field-input" placeholder="ex. production (vide = namespace par défaut)"
+        <label class="field-label">Target namespace</label>
+        <input type="text" class="field-input" placeholder="e.g. production (empty = default namespace)"
                data-input="img-wiz-namespace" value="${esc(d.targetNamespace)}">
       </div>
     </div>`;
@@ -1370,10 +1368,10 @@ function imgWizStepDiode() {
   const d = ui.wizard.data;
   return `
     <div class="wiz-section">
-      <h3 class="wiz-section__title">Destination (réseau sous diode)</h3>
-      <div class="banner banner--warning" style="margin-bottom:16px;">⚡ <span>Le transfert est <strong>unidirectionnel</strong> : aucun flux de retour n'est possible une fois l\'image transférée.</span></div>
+      <h3 class="wiz-section__title">Destination (diode network)</h3>
+      <div class="banner banner--warning" style="margin-bottom:16px;">⚡ <span>The transfer is <strong>one-way</strong>: no return flow is possible once the image has been transferred.</span></div>
       <div class="form-row">
-        <label class="field-label">Zone de destination <span style="color:var(--bs-danger)">*</span></label>
+        <label class="field-label">Destination zone <span style="color:var(--bs-danger)">*</span></label>
         <div class="pick-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-top:6px;">
           ${Object.entries(DIODE_NETWORKS).map(([key, net]) => `
             <div class="pick-card ${d.diodeNetwork === key ? 'is-selected' : ''}"
@@ -1385,13 +1383,13 @@ function imgWizStepDiode() {
         </div>
       </div>
       <div class="form-row">
-        <label class="field-label">Système cible <span style="color:var(--bs-danger)">*</span></label>
-        <input type="text" class="field-input" placeholder="ex. serveur-isolé-prod"
+        <label class="field-label">Target system <span style="color:var(--bs-danger)">*</span></label>
+        <input type="text" class="field-input" placeholder="e.g. isolated-server-prod"
                data-input="img-wiz-system" value="${esc(d.targetSystem)}">
       </div>
       <div class="form-row">
-        <label class="field-label">Chemin de dépôt sur le système cible</label>
-        <input type="text" class="field-input" placeholder="ex. /images/applicatifs"
+        <label class="field-label">Deposit path on target system</label>
+        <input type="text" class="field-input" placeholder="e.g. /images/apps"
                data-input="img-wiz-path" value="${esc(d.targetPath)}">
       </div>
     </div>`;
@@ -1401,10 +1399,10 @@ function imgWizStepSecurity() {
   const d = ui.wizard.data;
   return `
     <div class="wiz-section">
-      <h3 class="wiz-section__title">Classification et sécurité</h3>
-      <div class="banner banner--error" style="margin-bottom:16px;">🔒 <span>Le transfert via diode est soumis à la politique de <strong>sécurité des systèmes d'information sensibles</strong>. Toute erreur de classification engage la responsabilité du demandeur.</span></div>
+      <h3 class="wiz-section__title">Classification and security</h3>
+      <div class="banner banner--error" style="margin-bottom:16px;">🔒 <span>The diode transfer is subject to the <strong>sensitive information systems security policy</strong>. Any misclassification is the requester's responsibility.</span></div>
       <div class="form-row">
-        <label class="field-label">Niveau de classification du contenu transféré <span style="color:var(--bs-danger)">*</span></label>
+        <label class="field-label">Classification level of transferred content <span style="color:var(--bs-danger)">*</span></label>
         <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
           ${Object.entries(SECURITY_LEVELS).map(([key, lvl]) => `
             <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:2px solid ${d.securityLevel === key ? lvl.color : 'var(--bs-border)'};border-radius:8px;cursor:pointer;background:${d.securityLevel === key ? lvl.color + '18' : 'transparent'};">
@@ -1415,7 +1413,7 @@ function imgWizStepSecurity() {
         </div>
       </div>
       <div class="form-row" style="margin-top:12px;">
-        <label class="field-label" style="color:var(--bs-text-muted);font-size:12px;">En soumettant cette demande, vous certifiez que l\'image à transférer ne contient aucun code malveillant et que sa classification est correcte.</label>
+        <label class="field-label" style="color:var(--bs-text-muted);font-size:12px;">By submitting this request, you certify that the image to be transferred contains no malicious code and that its classification is correct.</label>
       </div>
     </div>`;
 }
@@ -1424,16 +1422,16 @@ function imgWizSummaryPull() {
   const d = ui.wizard.data;
   return `
     <div class="wiz-section">
-      <h3 class="wiz-section__title">Résumé de la demande</h3>
+      <h3 class="wiz-section__title">Request summary</h3>
       <div class="kv-grid" style="margin-top:12px;">
-        <div><span class="label">Type</span><span class="value">⚓ Pull image Harbor</span></div>
-        <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
+        <div><span class="label">Type</span><span class="value">⚓ Harbor image pull</span></div>
+        <div><span class="label">Team</span><span class="value">${esc(d.team)}</span></div>
         <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(d.harborProject)}/${esc(d.imageName)}:${esc(d.imageTag)}</span></div>
-        <div><span class="label">Cluster cible</span><span class="value">${esc(d.targetCluster)}</span></div>
+        <div><span class="label">Target cluster</span><span class="value">${esc(d.targetCluster)}</span></div>
         <div><span class="label">Namespace</span><span class="value">${esc(d.targetNamespace) || 'default'}</span></div>
         <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(d.justification)}</span></div>
       </div>
-      <div class="banner banner--info" style="margin-top:16px;">ℹ️ <span>L'équipe plateforme vérifiera la demande et lancera le pipeline de scan Trivy + déploiement Rancher.</span></div>
+      <div class="banner banner--info" style="margin-top:16px;">ℹ️ <span>The platform team will review the request and launch the Trivy scan + Rancher deployment pipeline.</span></div>
     </div>`;
 }
 
@@ -1443,18 +1441,18 @@ function imgWizSummaryPush() {
   const lvl = SECURITY_LEVELS[d.securityLevel];
   return `
     <div class="wiz-section">
-      <h3 class="wiz-section__title">Résumé de la demande</h3>
+      <h3 class="wiz-section__title">Request summary</h3>
       <div class="kv-grid" style="margin-top:12px;">
-        <div><span class="label">Type</span><span class="value">🔒 Push vers réseau sous diode</span></div>
-        <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
+        <div><span class="label">Type</span><span class="value">🔒 Push to diode network</span></div>
+        <div><span class="label">Team</span><span class="value">${esc(d.team)}</span></div>
         <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(d.harborProject)}/${esc(d.imageName)}:${esc(d.imageTag)}</span></div>
-        <div><span class="label">Zone diode</span><span class="value">${net ? net.icon + ' ' + net.label : esc(d.diodeNetwork)}</span></div>
-        <div><span class="label">Système cible</span><span class="value">${esc(d.targetSystem)}</span></div>
-        <div><span class="label">Chemin</span><span class="value mono">${esc(d.targetPath)}</span></div>
+        <div><span class="label">Diode zone</span><span class="value">${net ? net.icon + ' ' + net.label : esc(d.diodeNetwork)}</span></div>
+        <div><span class="label">Target system</span><span class="value">${esc(d.targetSystem)}</span></div>
+        <div><span class="label">Path</span><span class="value mono">${esc(d.targetPath)}</span></div>
         <div><span class="label">Classification</span><span class="value" style="color:${lvl ? lvl.color : 'inherit'}">${lvl ? lvl.icon + ' ' + lvl.label : esc(d.securityLevel)}</span></div>
         <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(d.justification)}</span></div>
       </div>
-      <div class="banner banner--warning" style="margin-top:16px;">⚡ <span>Ce transfert est soumis à une <strong>validation renforcée</strong>. Le pipeline inclut scan AV, Trivy, chiffrement AES-256 et traçabilité complète.</span></div>
+      <div class="banner banner--warning" style="margin-top:16px;">⚡ <span>This transfer is subject to <strong>enhanced validation</strong>. The pipeline includes AV scan, Trivy, AES-256 encryption and full traceability.</span></div>
     </div>`;
 }
 
@@ -1464,11 +1462,11 @@ function imgWizConfirm() {
   return `
     <div style="text-align:center;padding:32px 16px;">
       <div style="font-size:48px;margin-bottom:16px;">📨</div>
-      <h3 style="margin-bottom:8px;">Demande envoyée !</h3>
-      <p class="muted">Votre demande <strong>${esc(id)}</strong> est en attente de validation par l'équipe plateforme.</p>
+      <h3 style="margin-bottom:8px;">Request submitted!</h3>
+      <p class="muted">Your request <strong>${esc(id)}</strong> is pending validation by the platform team.</p>
       <div style="display:flex;gap:10px;justify-content:center;margin-top:24px;">
-        <button class="btn btn--outline" data-action="open-request" data-arg="${esc(id)}">Suivre ma demande</button>
-        <button class="btn btn--primary" data-action="goto-catalog">Retour au catalogue</button>
+        <button class="btn btn--outline" data-action="open-request" data-arg="${esc(id)}">Track my request</button>
+        <button class="btn btn--primary" data-action="goto-catalog">Back to catalog</button>
       </div>
     </div>`;
 }
@@ -1479,13 +1477,13 @@ function validateImageWizardStep() {
   const steps = IMAGE_WIZARD_STEPS[w.wizardType] || [];
   const summaryStep = steps.length - 2;
 
-  if (w.step === 0 && !d.justification.trim()) return 'La justification est obligatoire.';
+  if (w.step === 0 && !d.justification.trim()) return 'Justification is required.';
   if (w.step === 1) {
-    if (!d.imageName.trim()) return 'Le nom de l\'image est obligatoire.';
-    if (!d.imageTag.trim()) return 'Le tag de l\'image est obligatoire.';
+    if (!d.imageName.trim()) return 'Image name is required.';
+    if (!d.imageTag.trim()) return 'Image tag is required.';
   }
-  if (w.wizardType === 'harbor-pull' && w.step === 2 && !d.targetCluster.trim()) return 'Le cluster cible est obligatoire.';
-  if (w.wizardType === 'diode-push' && w.step === 2 && !d.targetSystem.trim()) return 'Le système cible est obligatoire.';
+  if (w.wizardType === 'harbor-pull' && w.step === 2 && !d.targetCluster.trim()) return 'Target cluster is required.';
+  if (w.wizardType === 'diode-push' && w.step === 2 && !d.targetSystem.trim()) return 'Target system is required.';
   return '';
 }
 
@@ -1493,7 +1491,7 @@ function submitImageWizard() {
   const w = ui.wizard;
   const d = w.data;
   const id = `REQ-${state.nextRequestNum++}`;
-  const label = w.wizardType === 'harbor-pull' ? 'Pull image Harbor' : 'Push vers réseau sous diode';
+  const label = w.wizardType === 'harbor-pull' ? 'Harbor image pull' : 'Push to diode network';
   const req = {
     id, requestType: w.wizardType,
     name: `${w.wizardType === 'harbor-pull' ? 'pull' : 'push'}-${d.imageName.trim() || 'image'}-${id.toLowerCase()}`,
@@ -1501,7 +1499,7 @@ function submitImageWizard() {
     description: d.justification.trim(),
     env: 'prod', size: 'S', network: 'FR', hypervisor: 'auto',
     resources: {}, customSpecs: {}, resourceSizes: {}, vmSizes: [],
-    /* champs spécifiques image */
+    /* image-specific fields */
     harborProject: d.harborProject.trim(),
     imageName: d.imageName.trim(),
     imageTag: d.imageTag.trim(),
@@ -1513,10 +1511,10 @@ function submitImageWizard() {
     securityLevel: d.securityLevel,
     status: 'pending', createdAt: now(),
     comment: '', prov: null,
-    history: [{ ts: now(), label: `Demande de ${label} envoyée par Marie Lambert` }],
+    history: [{ ts: now(), label: `${label} request submitted by Marie Lambert` }],
   };
   state.requests.unshift(req);
-  logActivity('📨', `Marie Lambert a soumis la demande ${id} (${label} — ${d.imageName}:${d.imageTag}).`);
+  logActivity('📨', `Marie Lambert submitted request ${id} (${label} — ${d.imageName}:${d.imageTag}).`);
   saveState();
 
   w.sentRequestId = id;
@@ -1524,8 +1522,8 @@ function submitImageWizard() {
   renderUser();
   renderAdmin();
   renderBadges();
-  toast('user', `Demande <strong>${id}</strong> envoyée pour validation`, 'success');
-  toast('admin', `🔔 Nouvelle demande <strong>${id}</strong> à valider`, 'info');
+  toast('user', `Request <strong>${id}</strong> submitted for validation`, 'success');
+  toast('admin', `🔔 New request <strong>${id}</strong> to validate`, 'info');
 }
 
 function userWizardPage() {
@@ -1550,16 +1548,16 @@ function userWizardPage() {
   const resCount = RES_ORDER.filter(k => w.data.resources[k]).length;
   const costStrip = (w.step >= 2 && w.step <= 4)
     ? `<div class="wizard-cost-strip">
-        <span><strong>${resCount}</strong> ressource${resCount !== 1 ? 's' : ''} sélectionnée${resCount !== 1 ? 's' : ''}</span>
-        <span>Estimation mensuelle : <strong>${euro(computeCost(w.data).total)}</strong> <small>HT</small></span>
+        <span><strong>${resCount}</strong> resource${resCount !== 1 ? 's' : ''} selected</span>
+        <span>Monthly estimate: <strong>${euro(computeCost(w.data).total)}</strong> <small>excl. tax</small></span>
        </div>`
     : '';
 
   return `
     ${pageHeader('user', {
-      crumbs: [{ label: 'Créer…', action: 'goto-create' }, { label: w.templateTitle || 'Bundle' }],
+      crumbs: [{ label: 'Create…', action: 'goto-create' }, { label: w.templateTitle || 'Bundle' }],
       title: w.templateTitle || 'Bundle',
-      subtitle: w.templateSubtitle || 'Template géré par équipe-plateforme · v2.4',
+      subtitle: w.templateSubtitle || 'Template managed by team-platform · v2.4',
     })}
     <div class="content">
       <div class="card">
@@ -1571,12 +1569,12 @@ function userWizardPage() {
           ${isLastInfo ? '' : `
           <div class="wizard-actions">
             <div>
-              ${w.step > 0 ? '<button class="btn btn--text" data-action="wiz-prev">Précédent</button>' : '<button class="btn btn--text" data-action="goto-create">Annuler</button>'}
+              ${w.step > 0 ? '<button class="btn btn--text" data-action="wiz-prev">Previous</button>' : '<button class="btn btn--text" data-action="goto-create">Cancel</button>'}
             </div>
             <div>
               ${w.step < 4
-                ? '<button class="btn btn--primary" data-action="wiz-next">Suivant</button>'
-                : '<button class="btn btn--success" data-action="wiz-submit">📨 Envoyer la demande</button>'}
+                ? '<button class="btn btn--primary" data-action="wiz-next">Next</button>'
+                : '<button class="btn btn--success" data-action="wiz-submit">📨 Submit request</button>'}
             </div>
           </div>`}
         </div>
@@ -1584,7 +1582,7 @@ function userWizardPage() {
     </div>`;
 }
 
-/* Étape 1 : informations générales */
+/* Step 1: general information */
 function wizStep1() {
   const d = ui.wizard.data;
   const name = d.name.trim();
@@ -1595,20 +1593,20 @@ function wizStep1() {
   );
   const slugValid = slugOk && !slugTaken;
   const indicator = name
-    ? `<span class="slug-indicator ${slugValid ? 'slug-ok' : 'slug-err'}">${slugValid ? '✓' : slugTaken ? 'Déjà utilisé' : '✗ Format invalide'}</span>`
+    ? `<span class="slug-indicator ${slugValid ? 'slug-ok' : 'slug-err'}">${slugValid ? '✓' : slugTaken ? 'Already in use' : '✗ Invalid format'}</span>`
     : '';
   return `
     <div class="form-grid-2">
       <div class="form-row">
-        <label class="field-label">Nom du projet <span class="required">*</span></label>
+        <label class="field-label">Project name <span class="required">*</span></label>
         <div class="slug-input-wrap">
-          <input type="text" placeholder="ex. portail-fournisseurs" value="${esc(d.name)}" data-input="wiz-name">
+          <input type="text" placeholder="e.g. supplier-portal" value="${esc(d.name)}" data-input="wiz-name">
           ${indicator}
         </div>
-        <div class="hint">Minuscules, chiffres et tirets uniquement — utilisé pour nommer toutes les ressources.</div>
+        <div class="hint">Lowercase, digits and hyphens only — used to name all resources.</div>
         ${name.length >= 3 ? `
         <div class="slug-preview">
-          <span class="slug-preview__label">Aperçu du nommage :</span>
+          <span class="slug-preview__label">Naming preview:</span>
           <div class="slug-preview__items">
             <span class="slug-chip slug-chip--main">${esc(name)}</span>
             <span class="slug-chip">${esc(name)}-rancher</span>
@@ -1619,7 +1617,7 @@ function wizStep1() {
         </div>` : ''}
       </div>
       <div class="form-row">
-        <label class="field-label">Propriétaire / équipe responsable <span class="required">*</span></label>
+        <label class="field-label">Owner / responsible team <span class="required">*</span></label>
         <select data-input="wiz-team">
           ${TEAMS.map(t => `<option ${t === d.team ? 'selected' : ''}>${t}</option>`).join('')}
         </select>
@@ -1627,17 +1625,17 @@ function wizStep1() {
     </div>
     <div class="form-row">
       <label class="field-label">Description</label>
-      <textarea rows="3" placeholder="À quoi servira ce projet ?" data-input="wiz-desc">${esc(d.description)}</textarea>
+      <textarea rows="3" placeholder="What will this project be used for?" data-input="wiz-desc">${esc(d.description)}</textarea>
     </div>
   `;
 }
 
-/* Étape 2 : environnement cible */
+/* Step 2: target environment */
 function wizStep2() {
   const d = ui.wizard.data;
   return `
     <div class="form-row">
-      <label class="field-label">Environnement cible <span class="required">*</span></label>
+      <label class="field-label">Target environment <span class="required">*</span></label>
       <div class="pick-grid">
         ${Object.entries(ENVIRONMENTS).map(([k, e]) => `
           <div class="pick-card ${d.env === k ? 'is-selected' : ''}" data-action="wiz-env" data-arg="${k}">
@@ -1646,10 +1644,10 @@ function wizStep2() {
             <div class="pick-card__desc">${e.desc}</div>
           </div>`).join('')}
       </div>
-      ${d.env === 'prod' ? '<div class="banner banner--warning" style="margin-top:14px;">⚠️ <span>Un environnement de production nécessite une validation renforcée de l’équipe plateforme.</span></div>' : ''}
+      ${d.env === 'prod' ? '<div class="banner banner--warning" style="margin-top:14px;">⚠️ <span>A production environment requires enhanced validation by the platform team.</span></div>' : ''}
     </div>
     <div class="form-row">
-      <label class="field-label">Réseau / région cible <span class="required">*</span></label>
+      <label class="field-label">Target network / region <span class="required">*</span></label>
       <div class="pick-grid">
         ${Object.entries(NETWORKS).map(([k, n]) => `
           <div class="pick-card ${d.network === k ? 'is-selected' : ''}" data-action="wiz-network" data-arg="${k}">
@@ -1658,27 +1656,27 @@ function wizStep2() {
             <div class="pick-card__desc">${n.desc}</div>
           </div>`).join('')}
       </div>
-      <div class="hint">Détermine le datacenter d’hébergement et le pool de capacité utilisé. L’hyperviseur des VM se choisit à l’étape « Dimensionnement ».</div>
+      <div class="hint">Determines the hosting datacenter and the capacity pool used. The VM hypervisor is chosen in the “Sizing” step.</div>
     </div>`;
 }
 
-/* Ordre d'affichage des ressources (sélection à l'étape 3, configuration à l'étape 4) */
-const RES_ORDER = ['rancher', 'harbor', 'vm', 'postgres', 'mariadb', 'mongo', 'redis', 'rabbitmq', 'serverless', 'wiki'];
+/* Resource display order (selected in step 3, configured in step 4) */
+const RES_ORDER = ['rancher', 'harbor', 'vm', 'postgres', 'mariadb', 'mongo', 'redis', 'rabbitmq', 'wiki'];
 
-/* Étape 3 : sélection des ressources (choix seul, configuration à l'étape suivante) */
+/* Step 3: resource selection (choice only, configuration in next step) */
 const RES_GROUPS = [
-  { label: 'Orchestration & Registres', keys: ['rancher', 'harbor'] },
-  { label: 'Machines virtuelles', keys: ['vm'] },
-  { label: 'Bases de données', keys: ['postgres', 'mariadb', 'mongo'] },
-  { label: 'Cache & Messagerie', keys: ['redis', 'rabbitmq'] },
-  { label: 'Services managés', keys: ['serverless', 'wiki'] },
+  { label: 'Orchestration & Registries', keys: ['rancher', 'harbor'] },
+  { label: 'Virtual Machines', keys: ['vm'] },
+  { label: 'Databases', keys: ['postgres', 'mariadb', 'mongo'] },
+  { label: 'Cache & Messaging', keys: ['redis', 'rabbitmq'] },
+  { label: 'Managed services', keys: ['wiki'] },
 ];
 
 function wizStep3() {
   const r = ui.wizard.data.resources;
   const card = key => {
     const def = RESOURCE_DEFS[key];
-    const priceStr = key === 'harbor' ? '1 € / Go / mois' : `dès ${euro(def.base)} / mois`;
+    const priceStr = key === 'harbor' ? '€1 / GB / month' : `from ${euro(def.base)} / month`;
     return `
       <div class="pick-card ${r[key] ? 'is-selected' : ''}" data-action="wiz-res" data-arg="${key}">
         <div class="pick-card__icon">${def.icon}</div>
@@ -1687,13 +1685,11 @@ function wizStep3() {
         <div class="pick-card__price">${priceStr}</div>
       </div>`;
   };
-  const depHint = (r.serverless && !r.rancher)
-    ? `<div class="dep-hint">⚠️ <strong>Dépendance :</strong> Serverless Containers nécessite un projet Rancher — sélectionnez-le également.</div>`
-    : '';
+  const depHint = '';
   return `
     <div class="form-row">
-      <label class="field-label">Ressources souhaitées <span class="required">*</span> <span class="muted">(au moins une — cliquez pour sélectionner)</span></label>
-      <div class="banner banner--info">ℹ️ <span>Choisissez les ressources à provisionner. Les détails (nom, volume, dimensionnement…) se configurent à l’étape <strong>Dimensionnement</strong>.</span></div>
+      <label class="field-label">Desired resources <span class="required">*</span> <span class="muted">(at least one — click to select)</span></label>
+      <div class="banner banner--info">ℹ️ <span>Choose the resources to provision. Details (name, volume, sizing…) are configured in the <strong>Sizing</strong> step.</span></div>
       ${RES_GROUPS.map(g => `
         <div class="res-group">
           <div class="res-group__header">${g.label}</div>
@@ -1704,7 +1700,7 @@ function wizStep3() {
 }
 
 
-/* Étape 4 : configuration et dimensionnement de chaque ressource + estimation de coût */
+/* Step 4: configuration and sizing of each resource + cost estimate */
 function wizStep4() {
   const d = ui.wizard.data;
   const r = d.resources;
@@ -1714,23 +1710,23 @@ function wizStep4() {
   const selectedSized = SIZED_KEYS.filter(k => r[k]);
 
   if (!selected.length) {
-    return emptyState('🧩', 'Aucune ressource à configurer',
-      'Revenez à l’étape « Ressources » pour sélectionner au moins une ressource à provisionner.');
+    return emptyState('🧩', 'Nothing to configure',
+      'Go back to the “Resources” step to select at least one resource to provision.');
   }
 
-  /* Texte de spec pour une taille donnée (ex. "PG-M · 4 vCPU · 16 Go RAM · 100 Go") */
+  /* Spec text for a given size (e.g. "PG-M · 4 vCPU · 16 GB RAM · 100 GB") */
   const sizeSpecsText = (key, sz) => {
-    if (sz === 'custom') return 'Spécification libre';
+    if (sz === 'custom') return 'Custom specification';
     const def = RESOURCE_DEFS[key];
     const plan = def.planLabels?.[sz];
     const fp = SIZE_FOOTPRINT[sz];
     const parts = [];
     if (plan) parts.push(plan);
-    if (fp) parts.push(`${fp.cpu} vCPU · ${fp.ram} Go RAM · ${fp.storage} Go stockage`);
+    if (fp) parts.push(`${fp.cpu} vCPU · ${fp.ram} GB RAM · ${fp.storage} GB storage`);
     return parts.join(' · ');
   };
 
-  /* Groupe de pills S/M/L/XL/⚙ pour une ressource donnée */
+  /* S/M/L/XL/⚙ pill group for a given resource */
   const pillGroup = (currentSize, actionArg, resourceKey) => {
     const pills = Object.keys(SIZES).map(sz => `
       <button class="dim-pill ${currentSize === sz ? 'dim-pill--active' : ''}"
@@ -1744,7 +1740,7 @@ function wizStep4() {
       <div class="dim-specs">${specTxt}${priceStr}</div>`;
   };
 
-  /* Éditeur sur mesure (affiché seulement si sz === 'custom') */
+  /* Custom editor (shown only if sz === 'custom') */
   const customEditor = specKey => {
     const c = d.customSpecs[specKey] || DEFAULT_CUSTOM;
     return `
@@ -1756,15 +1752,15 @@ function wizStep4() {
           <label class="dim-custom-field"><span>RAM (Go)</span>
             <input type="number" min="1" max="256" value="${c.ram}" data-input="wiz-rescustom" data-ckey="${specKey}" data-cfield="ram">
           </label>
-          <label class="dim-custom-field"><span>Stockage (Go)</span>
+          <label class="dim-custom-field"><span>Storage (GB)</span>
             <input type="number" min="1" max="2000" value="${c.storage}" data-input="wiz-rescustom" data-ckey="${specKey}" data-cfield="storage">
           </label>
         </div>
-        <div class="dim-custom-hint">12 €/vCPU + 6 €/Go RAM + 0,20 €/Go stockage = <strong>${euro(customPrice(c))}/mois</strong></div>
+        <div class="dim-custom-hint">€12/vCPU + €6/GB RAM + €0.20/GB storage = <strong>${euro(customPrice(c))}/month</strong></div>
       </div>`;
   };
 
-  /* Carte pour une ressource */
+  /* Card for a resource */
   const resCard = key => {
     const def = RESOURCE_DEFS[key];
     const sz = rs[key] ?? d.size;
@@ -1778,7 +1774,7 @@ function wizStep4() {
           </div>
           <div class="dim-card__body">
             <div class="dim-field-row">
-              <label>Nom du projet Rancher</label>
+              <label>Rancher project name</label>
               <input type="text" class="dim-input" value="${esc(r.rancherName)}" placeholder="${esc(d.name || 'mon-projet')}" data-input="wiz-ranchername">
             </div>
           </div>
@@ -1792,9 +1788,9 @@ function wizStep4() {
           </div>
           <div class="dim-card__body">
             <div class="dim-field-row">
-              <label>Capacité</label>
+              <label>Capacity</label>
               <input type="number" min="1" max="500" value="${r.registryGb}" data-input="wiz-registrygb" style="width:72px;">
-              <span class="muted">Go (1 €/Go/mois)</span>
+              <span class="muted">GB (€1/GB/month)</span>
             </div>
           </div>
         </div>`;
@@ -1821,7 +1817,7 @@ function wizStep4() {
           </div>
           <div class="dim-card__body">
             <div class="dim-field-row">
-              <label>Nom du wiki</label>
+              <label>Wiki name</label>
               <input type="text" class="dim-input" value="${esc(r.wikiName)}" placeholder="${esc((d.name || 'mon-projet') + '-wiki')}" data-input="wiz-wikiname">
             </div>
           </div>
@@ -1845,11 +1841,11 @@ function wizStep4() {
           <div class="dim-card__body">
             <div class="dim-vm-meta">
               <div class="dim-field-row">
-                <label>Nombre de VMs</label>
+                <label>Number of VMs</label>
                 <input type="number" min="1" max="6" value="${r.vmCount}" data-input="wiz-vmcount" style="width:60px;">
               </div>
               <div class="dim-field-row">
-                <label>Hyperviseur</label>
+                <label>Hypervisor</label>
                 <select data-input="wiz-hypervisor" class="dim-select">
                   ${Object.entries(HYPERVISORS).map(([k, h]) => `<option value="${k}" ${d.hypervisor === k ? 'selected' : ''}>${h.icon} ${h.label}</option>`).join('')}
                 </select>
@@ -1883,21 +1879,21 @@ function wizStep4() {
       </div>
       <aside class="dim-cost-aside">
         <div class="cost-box">
-          <span class="muted">Estimation mensuelle</span>
-          <div class="cost-box__total">${euro(cost.total)} <small>/ mois HT</small></div>
-          <div class="dim-cost-annual">${euro(cost.total * 12)} <small>/ an HT</small></div>
+          <span class="muted">Monthly estimate</span>
+          <div class="cost-box__total">${euro(cost.total)} <small>/ month excl. tax</small></div>
+          <div class="dim-cost-annual">${euro(cost.total * 12)} <small>/ year excl. tax</small></div>
           <ul class="cost-box__lines">
             ${cost.lines.map(l => `<li><span>${esc(l[0])}</span><span>${euro(Math.round(l[1]))}</span></li>`).join('')
-              || '<li><span class="muted">Aucune ressource sélectionnée</span></li>'}
+              || '<li><span class="muted">No resource selected</span></li>'}
           </ul>
-          <div class="dim-cost-note">Tarifs simulés · soumis à validation par l\u2019équipe plateforme.</div>
+          <div class="dim-cost-note">Simulated prices · subject to validation by the platform team.</div>
         </div>
       </aside>
     </div>`;
 }
 
 
-/* Vérifie si des tailles per-ressource diffèrent du gabarit global */
+/* Checks whether any per-resource sizes differ from the global template */
 function isCustomSized(d) {
   const rs = d.resourceSizes ?? {};
   if (Object.values(rs).some(sz => sz !== d.size)) return true;
@@ -1905,10 +1901,10 @@ function isCustomSized(d) {
   return false;
 }
 
-/* Taille effectivement appliquée aux ressources dimensionnées :
-   - une clé de taille (S/M/L/XL) si toutes partagent la même,
-   - null si les tailles sont hétérogènes (personnalisation),
-   - le gabarit global si aucune ressource dimensionnée n'est sélectionnée. */
+/* Effective size applied to sized resources:
+   - a size key (S/M/L/XL) if all share the same,
+   - null if sizes are heterogeneous (custom),
+   - the global template if no sized resource is selected. */
 const SIZED_KEYS = ['vm', 'postgres', 'mariadb', 'mongo', 'redis', 'rabbitmq'];
 function effectiveSizeOf(d) {
   const rs = d.resourceSizes ?? {};
@@ -1918,66 +1914,66 @@ function effectiveSizeOf(d) {
   return applied.every(s => s === applied[0]) ? applied[0] : null;
 }
 
-/* Étape 5 : résumé avant envoi */
+/* Step 5: summary before submission */
 function wizStep5() {
   const d = ui.wizard.data;
   const cost = computeCost(d);
   return `
-    <div class="banner banner--info">📋 <span>Vérifiez le récapitulatif : la demande sera transmise à l’équipe plateforme pour validation.</span></div>
+    <div class="banner banner--info">📋 <span>Check the summary: the request will be forwarded to the platform team for validation.</span></div>
     <div class="kv-grid" style="margin-bottom:18px;">
-      <div><span class="label">Nom du projet</span><span class="value mono">${esc(d.name)}</span></div>
-      <div><span class="label">Équipe</span><span class="value">${esc(d.team)}</span></div>
-      <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[d.env].icon} ${ENVIRONMENTS[d.env].label}</span></div>
-      <div><span class="label">Réseau</span><span class="value">${NETWORKS[d.network].flag} ${NETWORKS[d.network].label}</span></div>
-      ${d.resources.vm ? `<div><span class="label">Hyperviseur</span><span class="value">${d.hypervisor === 'auto' ? 'Indifférent' : `${HYPERVISORS[d.hypervisor].icon} ${HYPERVISORS[d.hypervisor].label}`}</span></div>` : ''}
-      <div><span class="label">Gabarit</span><span class="value">${effectiveSizeOf(d)
-        ? `${SIZES[effectiveSizeOf(d)].label}${isCustomSized(d) ? ' <span class="chip chip--info">personnalisé</span>' : ''}`
-        : '<span class="chip chip--info">Tailles personnalisées</span>'}</span></div>
+      <div><span class="label">Project name</span><span class="value mono">${esc(d.name)}</span></div>
+      <div><span class="label">Team</span><span class="value">${esc(d.team)}</span></div>
+      <div><span class="label">Environment</span><span class="value">${ENVIRONMENTS[d.env].icon} ${ENVIRONMENTS[d.env].label}</span></div>
+      <div><span class="label">Network</span><span class="value">${NETWORKS[d.network].flag} ${NETWORKS[d.network].label}</span></div>
+      ${d.resources.vm ? `<div><span class="label">Hypervisor</span><span class="value">${d.hypervisor === 'auto' ? 'Any' : `${HYPERVISORS[d.hypervisor].icon} ${HYPERVISORS[d.hypervisor].label}`}</span></div>` : ''}
+      <div><span class="label">Size</span><span class="value">${effectiveSizeOf(d)
+        ? `${SIZES[effectiveSizeOf(d)].label}${isCustomSized(d) ? ' <span class="chip chip--info">customized</span>' : ''}`
+        : '<span class="chip chip--info">Custom sizes</span>'}</span></div>
       <div class="kv--full"><span class="label">Description</span><span class="value">${esc(d.description) || '—'}</span></div>
-      <div class="kv--full"><span class="label">Ressources</span>
+      <div class="kv--full"><span class="label">Resources</span>
         <span class="value">${resourceSummary(d).map(x => `<span class="chip">${esc(x)}</span>`).join('') || '—'}</span></div>
     </div>
     <div class="cost-box">
-      <span class="muted">Coût mensuel estimé</span>
-      <div class="cost-box__total">${euro(cost.total)} <small>/ mois (HT, simulé)</small></div>
+      <span class="muted">Estimated monthly cost</span>
+      <div class="cost-box__total">${euro(cost.total)} <small>/ month (excl. tax, simulated)</small></div>
     </div>`;
 }
 
-/* Étape 6 : confirmation d'envoi */
+/* Step 6: submission confirmation */
 function wizStep6() {
   const id = ui.wizard.sentRequestId;
   return `
     <div class="empty-state">
       <div class="empty-state__icon">✅</div>
-      <div class="empty-state__title">Demande ${esc(id)} envoyée</div>
-      <p>Votre demande est <strong>en attente de validation</strong> par l’équipe plateforme.
-         Elle apparaît dès maintenant dans la file de validation de l’interface administrateur (volet de droite).</p>
+      <div class="empty-state__title">Request ${esc(id)} submitted</div>
+      <p>Your request is <strong>pending validation</strong> by the platform team.
+         It is now visible in the validation queue of the administrator interface (right panel).</p>
       <div style="margin-top:18px; display:flex; gap:10px; justify-content:center;">
-        <button class="btn btn--primary" data-action="open-request" data-arg="${esc(id)}">Suivre ma demande</button>
-        <button class="btn btn--text" data-action="goto-catalog">Retour au catalogue</button>
+        <button class="btn btn--primary" data-action="open-request" data-arg="${esc(id)}">Track my request</button>
+        <button class="btn btn--text" data-action="goto-catalog">Back to catalog</button>
       </div>
     </div>`;
 }
 
-/* Validation de l'étape courante ; renvoie un message d'erreur ou '' */
+/* Validates the current step; returns an error message or '' */
 function validateWizardStep() {
   const w = ui.wizard, d = w.data;
   if (w.step === 0) {
-    if (!d.name.trim()) return 'Le nom du projet est obligatoire.';
+    if (!d.name.trim()) return 'Project name is required.';
     if (!/^[a-z0-9]([a-z0-9-]{1,38}[a-z0-9])?$/.test(d.name.trim()))
-      return 'Nom invalide : minuscules, chiffres et tirets uniquement (3 à 40 caractères).';
+      return 'Invalid name: lowercase, digits and hyphens only (3 to 40 characters).';
     if (state.entities.some(e => e.name === d.name.trim()) || state.requests.some(r => r.name === d.name.trim() && r.status !== 'rejected'))
-      return `Le nom « ${d.name.trim()} » est déjà utilisé dans le catalogue.`;
+      return `Name "${d.name.trim()}" is already used in the catalog.`;
   }
   if (w.step === 2) {
     const r = d.resources;
-    if (!r.rancher && !r.harbor && !r.vm && !r.postgres && !r.mariadb && !r.mongo && !r.redis && !r.rabbitmq && !r.serverless && !r.wiki)
-      return 'Sélectionnez au moins une ressource.';
+    if (!r.rancher && !r.harbor && !r.vm && !r.postgres && !r.mariadb && !r.mongo && !r.redis && !r.rabbitmq && !r.wiki)
+      return 'Select at least one resource.';
   }
   return '';
 }
 
-/* Création de la demande à partir de l'assistant */
+/* Creating the request from the wizard */
 function submitWizard() {
   const d = ui.wizard.data;
   const id = `REQ-${state.nextRequestNum++}`;
@@ -1992,10 +1988,10 @@ function submitWizard() {
     resources: { ...d.resources },
     status: 'pending', createdAt: now(),
     comment: '', prov: null,
-    history: [{ ts: now(), label: 'Demande envoyée par Marie Lambert' }],
+    history: [{ ts: now(), label: 'Request submitted by Marie Lambert' }],
   };
   state.requests.unshift(req);
-  logActivity('📨', `Marie Lambert a soumis la demande ${id} (${req.name}).`);
+  logActivity('📨', `Marie Lambert submitted request ${id} (${req.name}).`);
   saveState();
 
   ui.wizard.sentRequestId = id;
@@ -2003,18 +1999,18 @@ function submitWizard() {
   renderUser();
   renderAdmin();
   renderBadges();
-  toast('user', `Demande <strong>${id}</strong> envoyée pour validation`, 'success');
-  toast('admin', `🔔 Nouvelle demande <strong>${id}</strong> à valider`, 'info');
+  toast('user', `Request <strong>${id}</strong> submitted for validation`, 'success');
+  toast('admin', `🔔 New request <strong>${id}</strong> to validate`, 'info');
 }
 
-/* ---- 5.5 Mes demandes ---- */
+/* ---- 5.5 My requests ---- */
 function userRequestsPage() {
   const mine = state.requests.slice().sort((a, b) => b.createdAt - a.createdAt);
   return `
     ${pageHeader('user', {
-      title: 'Mes demandes',
-      subtitle: 'Suivi des demandes de ressources soumises à l’équipe plateforme',
-      meta: [['Demandes', String(mine.length)]],
+      title: 'My Requests',
+      subtitle: 'Track infrastructure resource requests submitted to the platform team',
+      meta: [['Requests', String(mine.length)]],
     })}
     <div class="content">
       <div class="card">
@@ -2022,8 +2018,8 @@ function userRequestsPage() {
           ${mine.length ? `
           <table class="bs-table">
             <thead><tr>
-              <th>Réf.</th><th>Projet</th><th>Environnement</th><th>Ressources</th>
-              <th>Coût estimé</th><th>Statut</th><th>Créée</th>
+              <th>Ref.</th><th>Project</th><th>Environment</th><th>Resources</th>
+              <th>Est. cost</th><th>Status</th><th>Created</th>
             </tr></thead>
             <tbody>
               ${mine.map(r => `
@@ -2037,13 +2033,13 @@ function userRequestsPage() {
                   <td class="cell-secondary">${timeAgo(r.createdAt)}</td>
                 </tr>`).join('')}
             </tbody>
-          </table>` : emptyState('📭', 'Aucune demande', 'Créez votre première demande depuis la page « Créer… ».')}
+          </table>` : emptyState('📭', 'No requests', 'Create your first request from the Create… page.')}
         </div>
       </div>
     </div>`;
 }
 
-/* ---- 5.6 Détail d'une demande (côté utilisateur) ---- */
+/* ---- 5.6 Request detail (user side) ---- */
 function userRequestDetailPage() {
   const r = state.requests.find(x => x.id === ui.user.request);
   if (!r) { ui.user.page = 'requests'; return userRequestsPage(); }
@@ -2052,52 +2048,52 @@ function userRequestDetailPage() {
 
   return `
     ${pageHeader('user', {
-      crumbs: [{ label: 'Mes demandes', action: 'goto-requests' }, { label: r.id }],
+      crumbs: [{ label: 'My Requests', action: 'goto-requests' }, { label: r.id }],
       title: `${r.id} — ${r.name}`,
-      subtitle: `Demandée par ${esc(r.requester)} · ${esc(r.team)}`,
-      meta: [['Statut', statusChip(r.status)], ['Coût estimé', euro(cost.total) + '/mois']],
+      subtitle: `Requested by ${esc(r.requester)} · ${esc(r.team)}`,
+      meta: [['Status', statusChip(r.status)], ['Est. cost', euro(cost.total) + '/month']],
     })}
     <div class="content">
       ${r.status === 'rejected' ? `
-        <div class="banner banner--error">⛔ <span><strong>Demande refusée.</strong> ${esc(r.comment)}</span></div>` : ''}
+        <div class="banner banner--error">⛔ <span><strong>Request rejected.</strong> ${esc(r.comment)}</span></div>` : ''}
       ${r.status === 'available' ? `
-        <div class="banner banner--success">🎉 <span><strong>Ressources disponibles !</strong> Les entités créées sont visibles dans le catalogue.</span></div>` : ''}
+        <div class="banner banner--success">🎉 <span><strong>Resources available!</strong> Created entities are visible in the catalog.</span></div>` : ''}
       ${r.status === 'pending' ? `
-        <div class="banner banner--info">⏳ <span>Demande en cours d’examen par l’équipe plateforme.</span></div>` : ''}
+        <div class="banner banner--info">⏳ <span>Request currently under review by the platform team.</span></div>` : ''}
       ${r.status === 'provisioning' ? `
-        <div class="banner banner--info">⚙️ <span>Provisionnement en cours… suivez l’avancement dans le volet administrateur.</span></div>` : ''}
+        <div class="banner banner--info">⚙️ <span>Provisioning in progress… track progress in the administrator panel.</span></div>` : ''}
 
       <div class="card">
-        <div class="card__header"><span class="card__title">Récapitulatif</span></div>
+        <div class="card__header"><span class="card__title">Summary</span></div>
         <div class="card__body">
           <div class="kv-grid">
             ${r.requestType === 'harbor-pull' || r.requestType === 'diode-push' ? `
-            <div><span class="label">Type</span><span class="value">${r.requestType === 'harbor-pull' ? '⚓ Pull image Harbor' : '🔒 Push vers réseau sous diode'}</span></div>
+            <div><span class="label">Type</span><span class="value">${r.requestType === 'harbor-pull' ? '⚓ Harbor image pull' : '🔒 Push to diode network'}</span></div>
             <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(r.harborProject || '?')}/${esc(r.imageName || '?')}:${esc(r.imageTag || 'latest')}</span></div>
             ${r.requestType === 'harbor-pull' ? `
-            <div><span class="label">Cluster cible</span><span class="value">${esc(r.targetCluster || '—')}</span></div>
+            <div><span class="label">Target cluster</span><span class="value">${esc(r.targetCluster || '—')}</span></div>
             <div><span class="label">Namespace</span><span class="value">${esc(r.targetNamespace) || 'default'}</span></div>` : `
-            <div><span class="label">Zone diode</span><span class="value">${(DIODE_NETWORKS[r.diodeNetwork] || {}).icon || ''} ${esc((DIODE_NETWORKS[r.diodeNetwork] || {}).label || r.diodeNetwork || '—')}</span></div>
-            <div><span class="label">Système cible</span><span class="value">${esc(r.targetSystem || '—')}</span></div>
+            <div><span class="label">Diode zone</span><span class="value">${(DIODE_NETWORKS[r.diodeNetwork] || {}).icon || ''} ${esc((DIODE_NETWORKS[r.diodeNetwork] || {}).label || r.diodeNetwork || '—')}</span></div>
+            <div><span class="label">Target system</span><span class="value">${esc(r.targetSystem || '—')}</span></div>
             <div><span class="label">Classification</span><span class="value">${(SECURITY_LEVELS[r.securityLevel] || {}).icon || ''} ${esc((SECURITY_LEVELS[r.securityLevel] || {}).label || r.securityLevel || '—')}</span></div>`}
             <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(r.description) || '—'}</span></div>` : `
-            <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</span></div>
-            <div><span class="label">Réseau</span><span class="value">${NETWORKS[r.network || 'FR'].flag} ${NETWORKS[r.network || 'FR'].label}</span></div>
-            ${r.resources.vm ? `<div><span class="label">Hyperviseur</span><span class="value">${(r.hypervisor && r.hypervisor !== 'auto') ? `${HYPERVISORS[r.hypervisor].icon} ${HYPERVISORS[r.hypervisor].label}` : 'Indifférent'}</span></div>` : ''}
-            <div><span class="label">Taille</span><span class="value">${SIZES[r.size].label}</span></div>
-            <div><span class="label">Coût mensuel estimé</span><span class="value">${euro(cost.total)}</span></div>
+            <div><span class="label">Environment</span><span class="value">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</span></div>
+            <div><span class="label">Network</span><span class="value">${NETWORKS[r.network || 'FR'].flag} ${NETWORKS[r.network || 'FR'].label}</span></div>
+            ${r.resources.vm ? `<div><span class="label">Hypervisor</span><span class="value">${(r.hypervisor && r.hypervisor !== 'auto') ? `${HYPERVISORS[r.hypervisor].icon} ${HYPERVISORS[r.hypervisor].label}` : 'Any'}</span></div>` : ''}
+            <div><span class="label">Size</span><span class="value">${SIZES[r.size].label}</span></div>
+            <div><span class="label">Estimated monthly cost</span><span class="value">${euro(cost.total)}</span></div>
             <div class="kv--full"><span class="label">Description</span><span class="value">${esc(r.description) || '—'}</span></div>
-            <div class="kv--full"><span class="label">Ressources demandées</span>
+            <div class="kv--full"><span class="label">Requested resources</span>
               <span class="value">${resourceSummary(r).map(x => `<span class="chip">${esc(x)}</span>`).join('')}</span></div>`}
             ${r.comment && r.status !== 'rejected' ? `
-              <div class="kv--full"><span class="label">Commentaire de l'équipe plateforme</span>
+              <div class="kv--full"><span class="label">Platform team comment</span>
                 <span class="value">💬 ${esc(r.comment)}</span></div>` : ''}
           </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card__header"><span class="card__title">Historique</span></div>
+        <div class="card__header"><span class="card__title">History</span></div>
         <div class="card__body">
           <ul class="timeline">
             ${r.history.map(h => `<li>${esc(h.label)}<span class="time">${fmtDate(h.ts)}</span></li>`).join('')}
@@ -2107,17 +2103,17 @@ function userRequestDetailPage() {
 
       ${createdEntities.length ? `
       <div class="card">
-        <div class="card__header"><span class="card__title">Ressources créées</span>
-          <span class="muted">${createdEntities.length} entité(s) au catalogue</span></div>
+        <div class="card__header"><span class="card__title">Created resources</span>
+          <span class="muted">${createdEntities.length} entit${createdEntities.length > 1 ? 'ies' : 'y'} in catalog</span></div>
         <div class="card__body--flush table-wrap">
           <table class="bs-table">
-            <thead><tr><th>Nom</th><th>Type</th><th>Statut</th></tr></thead>
+            <thead><tr><th>Name</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
               ${createdEntities.map(e => `
                 <tr class="is-clickable" data-action="open-entity" data-arg="${esc(e.name)}">
                   <td><span class="cell-name">${esc(e.name)}</span></td>
                   <td class="cell-secondary">${esc(e.type)}</td>
-                  <td><span class="status status--available">Opérationnel</span></td>
+                  <td><span class="status status--available">Operational</span></td>
                 </tr>`).join('')}
             </tbody>
           </table>
@@ -2127,7 +2123,7 @@ function userRequestDetailPage() {
 }
 
 /* ============================================================
-   6. Vue administrateur
+   6. Administrator view
    ============================================================ */
 
 function renderAdmin() {
@@ -2140,7 +2136,7 @@ function renderAdmin() {
   main.innerHTML = (pages[ui.admin.page] || adminInboxPage)();
   syncSidebar('admin');
 
-  // Le journal d'exécution défile automatiquement vers le bas
+  // The execution log auto-scrolls to the bottom
   const consoleEl = $('#prov-console');
   if (consoleEl) consoleEl.scrollTop = consoleEl.scrollHeight;
 }
@@ -2149,7 +2145,7 @@ function renderAdmin() {
 function adminInboxPage() {
   const filters = [
     ['all', 'Toutes'], ['pending', 'En attente'], ['provisioning', 'En cours'],
-    ['available', 'Disponibles'], ['rejected', 'Refusées'],
+    ['available', 'Available'], ['rejected', 'Rejected'],
   ];
   const f = ui.admin.filter;
   let list = state.requests.slice().sort((a, b) => b.createdAt - a.createdAt);
@@ -2159,7 +2155,7 @@ function adminInboxPage() {
   return `
     ${pageHeader('admin', {
       title: 'Validations',
-      subtitle: 'Plugin de gouvernance · demandes de ressources d’infrastructure',
+      subtitle: 'Governance plugin · infrastructure resource requests',
       meta: [['En attente', String(pending)], ['Total', String(state.requests.length)]],
     })}
     <div class="tabs">
@@ -2167,14 +2163,14 @@ function adminInboxPage() {
         <button class="tab ${f === k ? 'is-active' : ''}" data-action="admin-filter" data-arg="${k}">${lbl}</button>`).join('')}
     </div>
     <div class="content">
-      ${pending ? `<div class="banner banner--warning">🔔 <span><strong>${pending} demande${pending > 1 ? 's' : ''}</strong> en attente de votre validation.</span></div>` : ''}
+      ${pending ? `<div class="banner banner--warning">🔔 <span><strong>${pending} request${pending > 1 ? 's' : ''}</strong> awaiting your validation.</span></div>` : ''}
       <div class="card">
         <div class="table-wrap">
           ${list.length ? `
           <table class="bs-table">
             <thead><tr>
-              <th>Réf.</th><th>Projet</th><th>Demandeur</th><th>Env.</th>
-              <th>Coût/mois</th><th>Statut</th><th>Créée</th>
+              <th>Ref.</th><th>Project</th><th>Requester</th><th>Env.</th>
+              <th>Cost/month</th><th>Status</th><th>Created</th>
             </tr></thead>
             <tbody>
               ${list.map(r => `
@@ -2188,13 +2184,13 @@ function adminInboxPage() {
                   <td class="cell-secondary">${timeAgo(r.createdAt)}</td>
                 </tr>`).join('')}
             </tbody>
-          </table>` : emptyState('🗂️', 'Aucune demande', 'Aucune demande ne correspond à ce filtre pour le moment.')}
+          </table>` : emptyState('🗂️', 'No requests', 'No requests match this filter at the moment.')}
         </div>
       </div>
     </div>`;
 }
 
-/* ---- 6.2 Détail d'une demande + provisionnement ---- */
+/* ---- 6.2 Request detail + provisioning ---- */
 function adminRequestPage() {
   const r = state.requests.find(x => x.id === ui.admin.request);
   if (!r) { ui.admin.page = 'inbox'; return adminInboxPage(); }
@@ -2202,7 +2198,7 @@ function adminRequestPage() {
   const cost = computeCost(r);
   const canDecide = r.status === 'pending';
 
-  /* Lignes du tableau des ressources demandées */
+  /* Rows of the requested resources table */
   const res = r.resources;
   const rs = r.resourceSizes ?? {};
   const globalSz = r.size ?? 'S';
@@ -2248,35 +2244,35 @@ function adminRequestPage() {
     ${pageHeader('admin', {
       crumbs: [{ label: 'Validations', action: 'admin-goto-inbox' }, { label: r.id }],
       title: `${r.id} — ${r.name}`,
-      subtitle: `Soumise par ${esc(r.requester)} (${esc(r.team)}) · ${timeAgo(r.createdAt)}`,
+      subtitle: `Submitted by ${esc(r.requester)} (${esc(r.team)}) · ${timeAgo(r.createdAt)}`,
       meta: [['Statut', statusChip(r.status)]],
     })}
     <div class="content">
 
       <div class="card">
-        <div class="card__header"><span class="card__title">Détail de la demande</span></div>
+        <div class="card__header"><span class="card__title">Request details</span></div>
         <div class="card__body">
           <div class="kv-grid">
             <div><span class="label">Projet</span><span class="value mono">${esc(r.name)}</span></div>
-            <div><span class="label">Environnement</span><span class="value">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</span></div>
-            <div><span class="label">Réseau</span><span class="value">${NETWORKS[r.network || 'FR'].flag} ${NETWORKS[r.network || 'FR'].label}</span></div>
-            ${r.resources.vm ? `<div><span class="label">Hyperviseur</span><span class="value">${(r.hypervisor && r.hypervisor !== 'auto') ? `${HYPERVISORS[r.hypervisor].icon} ${HYPERVISORS[r.hypervisor].label}` : 'Indifférent'}</span></div>` : ''}
-            <div><span class="label">Gabarit</span><span class="value">${SIZES[r.size].label}${isCustomSized(r) ? ' <span class="chip chip--info">personnalisé</span>' : ''}</span></div>
-            <div><span class="label">Demandeur</span><span class="value">${esc(r.requester)}</span></div>
+            <div><span class="label">Environment</span><span class="value">${ENVIRONMENTS[r.env].icon} ${ENVIRONMENTS[r.env].label}</span></div>
+            <div><span class="label">Network</span><span class="value">${NETWORKS[r.network || 'FR'].flag} ${NETWORKS[r.network || 'FR'].label}</span></div>
+            ${r.resources.vm ? `<div><span class="label">Hypervisor</span><span class="value">${(r.hypervisor && r.hypervisor !== 'auto') ? `${HYPERVISORS[r.hypervisor].icon} ${HYPERVISORS[r.hypervisor].label}` : 'Any'}</span></div>` : ''}
+            <div><span class="label">Size</span><span class="value">${SIZES[r.size].label}${isCustomSized(r) ? ' <span class="chip chip--info">custom</span>' : ''}</span></div>
+            <div><span class="label">Requester</span><span class="value">${esc(r.requester)}</span></div>
             <div class="kv--full"><span class="label">Description</span><span class="value">${esc(r.description) || '—'}</span></div>
           </div>
         </div>
       </div>
 
       <div class="card">
-        <div class="card__header"><span class="card__title">Ressources demandées</span>
+        <div class="card__header"><span class="card__title">Requested resources</span>
           <span class="muted">estimation : <strong>${euro(cost.total)}/mois</strong></span></div>
         <div class="card__body--flush table-wrap">
           <table class="bs-table">
-            <thead><tr><th>Ressource</th><th>Quantité</th><th>Coût mensuel</th></tr></thead>
+            <thead><tr><th>Resource</th><th>Quantity</th><th>Monthly cost</th></tr></thead>
             <tbody>
               ${resRows.map(row => `<tr><td>${row[0]}</td><td class="cell-secondary">${row[1]}</td><td>${row[2]}</td></tr>`).join('')}
-              <tr><td style="font-weight:700;">Total estimé</td><td></td><td style="font-weight:700;color:var(--bs-primary);">${euro(cost.total)}/mois</td></tr>
+              <tr><td style="font-weight:700;">Estimated total</td><td></td><td style="font-weight:700;color:var(--bs-primary);">${euro(cost.total)}/month</td></tr>
             </tbody>
           </table>
         </div>
@@ -2286,17 +2282,17 @@ function adminRequestPage() {
 
       ${canDecide ? `
       <div class="card">
-        <div class="card__header"><span class="card__title">Décision</span></div>
+        <div class="card__header"><span class="card__title">Decision</span></div>
         <div class="card__body">
-          ${r.env === 'prod' ? '<div class="banner banner--warning">⚠️ <span>Demande en <strong>production</strong> : vérifiez le dimensionnement avant validation.</span></div>' : ''}
-          ${feasShouldShow(r) && !assessFeasibility(r).feasible ? '<div class="banner banner--error">⛔ <span><strong>Capacité insuffisante</strong> sur la cible demandée (voir ci-dessus). Vous pouvez approuver malgré tout (dérogation) ou refuser en demandant un redimensionnement.</span></div>' : ''}
+          ${r.env === 'prod' ? '<div class="banner banner--warning">⚠️ <span>Request in <strong>production</strong>: verify sizing before validation.</span></div>' : ''}
+          ${feasShouldShow(r) && !assessFeasibility(r).feasible ? '<div class="banner banner--error">⛔ <span><strong>Insufficient capacity</strong> on the requested target (see above). You may still approve (override) or reject and request resizing.</span></div>' : ''}
           <div class="form-row">
-            <label class="field-label">Commentaire (visible par le demandeur)</label>
-            <textarea rows="2" id="admin-comment" placeholder="ex. Validé — pensez à activer les sauvegardes."></textarea>
+            <label class="field-label">Comment (visible to requester)</label>
+            <textarea rows="2" id="admin-comment" placeholder="e.g. Approved — remember to enable backups."></textarea>
           </div>
           <div style="display:flex; gap:10px; justify-content:flex-end;">
             <button class="btn btn--danger" data-action="admin-reject" data-arg="${esc(r.id)}">Refuser</button>
-            <button class="btn btn--success" data-action="admin-approve" data-arg="${esc(r.id)}">✓ Approuver et provisionner</button>
+            <button class="btn btn--success" data-action="admin-approve" data-arg="${esc(r.id)}">✓ Approve and provision</button>
           </div>
         </div>
       </div>` : ''}
@@ -2307,7 +2303,7 @@ function adminRequestPage() {
       ${r.prov ? adminProvisioningCard(r) : ''}
 
       <div class="card">
-        <div class="card__header"><span class="card__title">Historique de la demande</span></div>
+        <div class="card__header"><span class="card__title">Request history</span></div>
         <div class="card__body">
           <ul class="timeline">
             ${r.history.map(h => `<li>${esc(h.label)}<span class="time">${fmtDate(h.ts)}</span></li>`).join('')}
@@ -2317,13 +2313,13 @@ function adminRequestPage() {
     </div>`;
 }
 
-/* ---- Détail d'une demande image (harbor-pull / diode-push) ---- */
+/* ---- Image request detail (harbor-pull / diode-push) ---- */
 function adminImageRequestPage(r) {
   const canDecide = r.status === 'pending';
   const isPull = r.requestType === 'harbor-pull';
   const net = isPull ? null : (DIODE_NETWORKS[r.diodeNetwork] || {});
   const lvl = isPull ? null : (SECURITY_LEVELS[r.securityLevel] || {});
-  const typeLabel = isPull ? '⚓ Pull image Harbor' : '🔒 Push vers réseau sous diode';
+  const typeLabel = isPull ? '⚓ Pull Harbor image' : '🔒 Push to diode-secured network';
 
   return `
     ${pageHeader('admin', {
@@ -2335,7 +2331,7 @@ function adminImageRequestPage(r) {
     <div class="content">
 
       <div class="card">
-        <div class="card__header"><span class="card__title">Détail de la demande</span></div>
+        <div class="card__header"><span class="card__title">Request details</span></div>
         <div class="card__body">
           <div class="kv-grid">
             <div><span class="label">Type</span><span class="value">${typeLabel}</span></div>
@@ -2343,11 +2339,11 @@ function adminImageRequestPage(r) {
             <div><span class="label">Demandeur</span><span class="value">${esc(r.requester)}</span></div>
             <div><span class="label">Image</span><span class="value mono">harbor.internal/${esc(r.harborProject || '?')}/${esc(r.imageName || '?')}:${esc(r.imageTag || 'latest')}</span></div>
             ${isPull ? `
-            <div><span class="label">Cluster cible</span><span class="value">${esc(r.targetCluster || '—')}</span></div>
+            <div><span class="label">Target cluster</span><span class="value">${esc(r.targetCluster || '—')}</span></div>
             <div><span class="label">Namespace</span><span class="value">${esc(r.targetNamespace) || 'default'}</span></div>` : `
-            <div><span class="label">Zone diode</span><span class="value">${net.icon || ''} ${esc(net.label || r.diodeNetwork || '—')}</span></div>
-            <div><span class="label">Système cible</span><span class="value">${esc(r.targetSystem || '—')}</span></div>
-            <div><span class="label">Chemin</span><span class="value mono">${esc(r.targetPath || '/images')}</span></div>
+            <div><span class="label">Diode zone</span><span class="value">${net.icon || ''} ${esc(net.label || r.diodeNetwork || '—')}</span></div>
+            <div><span class="label">Target system</span><span class="value">${esc(r.targetSystem || '—')}</span></div>
+            <div><span class="label">Path</span><span class="value mono">${esc(r.targetPath || '/images')}</span></div>
             <div><span class="label">Classification</span><span class="value" style="color:${lvl.color || 'inherit'}">${lvl.icon || ''} ${esc(lvl.label || r.securityLevel || '—')}</span></div>`}
             <div class="kv--full"><span class="label">Justification</span><span class="value">${esc(r.description) || '—'}</span></div>
           </div>
@@ -2359,11 +2355,11 @@ function adminImageRequestPage(r) {
 
       ${canDecide ? `
       <div class="card">
-        <div class="card__header"><span class="card__title">Décision</span></div>
+        <div class="card__header"><span class="card__title">Decision</span></div>
         <div class="card__body">
           <div class="form-row">
             <label class="field-label">Commentaire (visible par le demandeur)</label>
-            <textarea rows="2" id="admin-comment" placeholder="ex. Approuvé — scan Trivy validé."></textarea>
+            <textarea rows="2" id="admin-comment" placeholder="e.g. Approved — Trivy scan validated."></textarea>
           </div>
           <div style="display:flex; gap:10px; justify-content:flex-end;">
             <button class="btn btn--danger" data-action="admin-reject" data-arg="${esc(r.id)}">Refuser</button>
@@ -2400,10 +2396,10 @@ function adminProvisioningCard(r) {
     <div class="card">
       <div class="card__header">
         <div>
-          <span class="card__title">Provisionnement automatisé</span>
-          <div class="card__subtitle">Pipeline simulé — aucun appel réel aux systèmes</div>
+          <span class="card__title">Automated provisioning</span>
+          <div class="card__subtitle">Simulated pipeline — no real system calls</div>
         </div>
-        ${finished ? '<span class="status status--available">Terminé</span>' : '<span class="status status--running">En cours</span>'}
+        ${finished ? '<span class="status status--available">Done</span>' : '<span class="status status--running">In progress</span>'}
       </div>
       <div class="card__body">
         <div class="muted" style="display:flex;justify-content:space-between;">
@@ -2416,9 +2412,9 @@ function adminProvisioningCard(r) {
             const st = p.steps[i];
             const cls = st === 'done' ? 'is-done' : st === 'active' ? 'is-active' : st === 'skipped' ? 'is-skipped' : '';
             const icon = st === 'done' ? '✓' : st === 'skipped' ? '–' : String(i + 1);
-            const detail = st === 'skipped' ? 'Ignorée — ressource non demandée'
-              : st === 'active' ? 'En cours d’exécution…'
-              : st === 'done' ? 'Terminée' : 'En attente';
+            const detail = st === 'skipped' ? 'Skipped — resource not requested'
+              : st === 'active' ? 'Running…'
+              : st === 'done' ? 'Done' : 'Pending';
             return `
               <li class="vstepper__item ${cls}">
                 <div class="vstepper__icon">${icon}</div>
@@ -2430,7 +2426,7 @@ function adminProvisioningCard(r) {
           }).join('')}
         </ul>
 
-        <div class="muted" style="margin:4px 0 6px;">Journal d'exécution</div>
+        <div class="muted" style="margin:4px 0 6px;">Execution log</div>
         <div class="console" id="prov-console">
           ${p.log.map(l => `<div><span class="ts">${l.ts}</span><span class="${l.cls}">${esc(l.text)}</span></div>`).join('')}
           ${!finished ? '<div><span class="ts">··</span><span class="info">▍</span></div>' : ''}
@@ -2439,13 +2435,13 @@ function adminProvisioningCard(r) {
     </div>`;
 }
 
-/* ---- 6.3 Journal d'activité ---- */
+/* ---- 6.3 Activity log ---- */
 function adminActivityPage() {
   return `
     ${pageHeader('admin', {
-      title: 'Journal d’activité',
+      title: 'Activity Log',
       subtitle: 'Trace auditable des actions de gouvernance et de provisionnement',
-      meta: [['Événements', String(state.activity.length)]],
+      meta: [['Events', String(state.activity.length)]],
     })}
     <div class="content">
       <div class="card">
@@ -2455,7 +2451,7 @@ function adminActivityPage() {
             <div>${esc(a.text)}</div>
             <div class="activity-row__time">${fmtDate(a.ts)} · ${timeAgo(a.ts)}</div>
           </div>`).join('')
-        : emptyState('🗒️', 'Journal vide', 'Les actions de validation et de provisionnement apparaîtront ici.')}
+        : emptyState('🗒️', 'Empty log', 'Validation and provisioning actions will appear here.')}
       </div>
     </div>`;
 }
@@ -2470,14 +2466,14 @@ function approveRequest(id) {
   const comment = ($('#admin-comment')?.value || '').trim();
   r.status = 'approved';
   r.comment = comment;
-  r.history.push({ ts: now(), label: 'Approuvée par Antoine Durand' + (comment ? ` — « ${comment} »` : '') });
-  logActivity('✅', `Antoine Durand a approuvé la demande ${id} (${r.name}).`);
+  r.history.push({ ts: now(), label: 'Approved by Antoine Durand' + (comment ? ` — "${comment}"` : '') });
+  logActivity('✅', `Antoine Durand approved request ${id} (${r.name}).`);
   saveState();
   renderAdmin(); renderBadges();
-  toast('admin', `Demande <strong>${id}</strong> approuvée — lancement du provisionnement`, 'success');
-  notifyUser(r, `✅ Votre demande <strong>${id}</strong> a été approuvée`, 'success');
+  toast('admin', `Request <strong>${id}</strong> approved — provisioning started`, 'success');
+  notifyUser(r, `✅ Your request <strong>${id}</strong> has been approved`, 'success');
 
-  // Petit délai avant le démarrage du pipeline, pour le rythme de la démo
+  // Short delay before pipeline start, for demo pacing
   setTimeout(() => startProvisioning(id), 1200);
 }
 
@@ -2486,13 +2482,13 @@ function rejectRequest(id) {
   if (!r || r.status !== 'pending') return;
   const comment = ($('#admin-comment')?.value || '').trim();
   r.status = 'rejected';
-  r.comment = comment || 'Demande refusée par l’équipe plateforme.';
-  r.history.push({ ts: now(), label: 'Refusée par Antoine Durand' + (comment ? ` — « ${comment} »` : '') });
-  logActivity('⛔', `Antoine Durand a refusé la demande ${id} (${r.name}).`);
+  r.comment = comment || 'Request rejected by the platform team.';
+  r.history.push({ ts: now(), label: 'Rejected by Antoine Durand' + (comment ? ` — "${comment}"` : '') });
+  logActivity('⛔', `Antoine Durand rejected request ${id} (${r.name}).`);
   saveState();
   renderAdmin(); renderBadges();
-  toast('admin', `Demande <strong>${id}</strong> refusée`, 'error');
-  notifyUser(r, `⛔ Votre demande <strong>${id}</strong> a été refusée`, 'error');
+  toast('admin', `Request <strong>${id}</strong> rejected`, 'error');
+  notifyUser(r, `⛔ Your request <strong>${id}</strong> has been rejected`, 'error');
 }
 
 function startProvisioning(id) {
@@ -2501,8 +2497,8 @@ function startProvisioning(id) {
   r.status = 'provisioning';
   if (!r.prov) {
     r.prov = { steps: getProvSteps(r).map(() => 'pending'), log: [] };
-    provLog(r, 'info', `Pipeline de provisionnement démarré pour « ${r.name} » (${ENVIRONMENTS[r.env].label})`);
-    r.history.push({ ts: now(), label: 'Provisionnement démarré' });
+    provLog(r, 'info', `Provisioning pipeline started for "${r.name}" (${ENVIRONMENTS[r.env].label})`);
+    r.history.push({ ts: now(), label: 'Provisioning started' });
   }
   saveState();
   renderAdmin(); renderBadges();
@@ -2510,7 +2506,7 @@ function startProvisioning(id) {
   advanceProvisioning(id);
 }
 
-/* Exécute la prochaine étape non traitée, puis se replanifie */
+/* Executes the next unprocessed step, then reschedules itself */
 function advanceProvisioning(id) {
   const r = state.requests.find(x => x.id === id);
   if (!r || r.status !== 'provisioning') return;
@@ -2519,16 +2515,16 @@ function advanceProvisioning(id) {
 
   const step = getProvSteps(r)[idx];
 
-  // Étape non concernée par la demande : marquée « ignorée », on enchaîne
+  // Step not applicable to this request: marked "skipped", moving on
   if (!step.needs(r)) {
     r.prov.steps[idx] = 'skipped';
-    provLog(r, '', `· ${step.title} — ignorée (ressource non demandée)`);
+    provLog(r, '', `· ${step.title} — skipped (resource not requested)`);
     saveState(); renderAdmin();
     setTimeout(() => advanceProvisioning(id), 450);
     return;
   }
 
-  // Étape active : on déroule ses lignes de journal puis on la clôt
+  // Active step: unroll its log lines then close it
   r.prov.steps[idx] = 'active';
   provLog(r, 'info', `▶ ${step.title}…`);
   saveState(); renderAdmin();
@@ -2554,19 +2550,19 @@ function advanceProvisioning(id) {
 
 function finishProvisioning(r) {
   r.status = 'available';
-  r.history.push({ ts: now(), label: 'Provisionnement terminé — ressources disponibles' });
+  r.history.push({ ts: now(), label: 'Provisioning complete — resources available' });
   const created = createEntitiesFromRequest(r);
-  logActivity('🚀', `Provisionnement de ${r.name} terminé : ${created} ressource(s) créée(s) au catalogue.`);
-  provLog(r, 'ok', `✔ Provisionnement terminé — ${created} entité(s) publiée(s) au catalogue`);
+  logActivity('🚀', `Provisioning of ${r.name} complete: ${created} resource(s) published to the catalog.`);
+  provLog(r, 'ok', `✔ Provisioning complete — ${created} entity(ies) published to the catalog`);
   saveState();
   renderAdmin(); renderBadges();
-  toast('admin', `🚀 Provisionnement de <strong>${esc(r.name)}</strong> terminé`, 'success');
+  toast('admin', `🚀 Provisioning of <strong>${esc(r.name)}</strong> complete`, 'success');
   notifyUser(r, `🎉 <strong>${esc(r.name)}</strong> est disponible — ressources visibles au catalogue`, 'success');
-  // On rafraîchit le volet utilisateur pour faire apparaître les entités
+  // Refresh the user pane to surface the new entities
   refreshUserSafely();
 }
 
-/* Publie les entités correspondant aux ressources de la demande */
+/* Publishes entities corresponding to the request's resources */
 function createEntitiesFromRequest(r) {
   if (r.requestType === 'harbor-pull' || r.requestType === 'diode-push') return 0;
   const env = ENVIRONMENTS[r.env].lifecycle;
@@ -2579,24 +2575,24 @@ function createEntitiesFromRequest(r) {
 
   add({ name: r.name, kind: 'Component', type: 'service',
         tags: [ENVIRONMENTS[r.env].label.toLowerCase(), 'taille-' + r.size.toLowerCase()],
-        description: r.description || `Projet provisionné via la demande ${r.id}.` }); count++;
+        description: r.description || `Project provisioned via request ${r.id}.` }); count++;
   if (r.resources.rancher) { add({ name: `${r.name}-rancher`, kind: 'Resource', type: 'rancher-project', tags: ['kubernetes'],
         description: `Projet Rancher « ${r.resources.rancherName || r.name} » (namespaces et quotas) du projet ${r.name}.` }); count++; }
   if (r.resources.harbor) { add({ name: `${r.name}-registry`, kind: 'Resource', type: 'harbor-project', tags: ['harbor', 'docker'],
         description: `Registre d\'images Harbor du projet ${r.name} (${r.resources.registryGb ?? 10} Go).` }); count++; }
   if (r.resources.vm) { add({ name: `${r.name}-vms`, kind: 'Resource', type: 'virtual-machine',
         tags: [`x${r.resources.vmCount}`, r.size.toLowerCase(), (r.network || 'fr').toLowerCase(), ...((r.hypervisor && r.hypervisor !== 'auto') ? [r.hypervisor] : [])],
-        description: `${r.resources.vmCount} machine(s) virtuelle(s) plan ${sizePlan(RESOURCE_DEFS.vm, r.size)}${(r.hypervisor && r.hypervisor !== 'auto') ? ` sur ${HYPERVISORS[r.hypervisor].label}` : ''} · région ${NETWORKS[r.network || 'FR'].label}.` }); count++; }
+        description: `${r.resources.vmCount} virtual machine(s) plan ${sizePlan(RESOURCE_DEFS.vm, r.size)}${(r.hypervisor && r.hypervisor !== 'auto') ? ` on ${HYPERVISORS[r.hypervisor].label}` : ''} · region ${NETWORKS[r.network || 'FR'].label}.` }); count++; }
   if (r.resources.postgres) { add({ name: `${r.name}-postgresql`, kind: 'Resource', type: 'database', tags: ['postgresql', sizePlan(RESOURCE_DEFS.postgres, r.size).toLowerCase()],
-        description: `Base PostgreSQL managée du projet ${r.name}.` }); count++; }
+        description: `Managed PostgreSQL database for project ${r.name}.` }); count++; }
   if (r.resources.mariadb) { add({ name: `${r.name}-mariadb`, kind: 'Resource', type: 'database', tags: ['mariadb', sizePlan(RESOURCE_DEFS.mariadb, r.size).toLowerCase()],
-        description: `Base MariaDB managée du projet ${r.name}.` }); count++; }
+        description: `Managed MariaDB database for project ${r.name}.` }); count++; }
   if (r.resources.mongo) { add({ name: `${r.name}-mongodb`, kind: 'Resource', type: 'database', tags: ['mongodb', sizePlan(RESOURCE_DEFS.mongo, r.size).toLowerCase()],
-        description: `Base MongoDB managée du projet ${r.name}.` }); count++; }
+        description: `Managed MongoDB database for project ${r.name}.` }); count++; }
   if (r.resources.redis) { add({ name: `${r.name}-redis`, kind: 'Resource', type: 'cache', tags: ['redis', sizePlan(RESOURCE_DEFS.redis, r.size).toLowerCase()],
-        description: `Cache Redis managé du projet ${r.name}.` }); count++; }
+        description: `Managed Redis cache for project ${r.name}.` }); count++; }
   if (r.resources.rabbitmq) { add({ name: `${r.name}-rabbitmq`, kind: 'Resource', type: 'message-broker', tags: ['rabbitmq', sizePlan(RESOURCE_DEFS.rabbitmq, r.size).toLowerCase()],
-        description: `Broker RabbitMQ managé du projet ${r.name}.` }); count++; }
+        description: `Managed RabbitMQ broker for project ${r.name}.` }); count++; }
   if (r.resources.serverless) { add({ name: `${r.name}-serverless`, kind: 'Resource', type: 'serverless', tags: ['serverless', 'containers'],
         description: `Namespace serverless Containers du projet ${r.name}${r.resources.serverlessImage ? ` (image ${r.resources.serverlessImage})` : ''}.` }); count++; }
   if (r.resources.wiki) { add({ name: `${r.name}-wiki`, kind: 'Resource', type: 'wiki', tags: ['wiki'],
@@ -2608,8 +2604,8 @@ function provLog(r, cls, text) {
   r.prov.log.push({ ts: clock(), cls, text });
 }
 
-/* Notifie le volet utilisateur et rafraîchit ses pages « passives ».
-   On ne re-rend jamais l'assistant en cours de saisie. */
+/* Notifies the user pane and refreshes its "passive" pages.
+   We never re-render the wizard while the user is typing. */
 function notifyUser(r, message, type) {
   toast('user', message, type);
   refreshUserSafely();
@@ -2621,10 +2617,10 @@ function refreshUserSafely() {
 }
 
 /* ============================================================
-   8. Gestion des événements
+   8. Gestion des event handling
    ============================================================ */
 
-/* Met à jour l'élément actif de la sidebar selon la page courante */
+/* Updates the active sidebar item based on the current page */
 function syncSidebar(pane) {
   const map = pane === 'user'
     ? { catalog: 'catalog', entity: 'catalog', create: 'create', wizard: 'create', requests: 'requests', requestDetail: 'requests' }
@@ -2649,7 +2645,7 @@ function renderBadges() {
   updateSplitMode();
 }
 
-/* Plein écran côté utilisateur tant qu'aucune demande n'a été créée */
+/* Full-screen user side until no request has been created */
 function updateSplitMode() {
   const split = document.querySelector('.split');
   if (!split) return;
@@ -2665,7 +2661,7 @@ $('#user-sidebar').addEventListener('click', e => {
   if (nav === 'catalog') { ui.user.page = 'catalog'; renderUser(); }
   else if (nav === 'create') { ui.user.page = 'create'; renderUser(); }
   else if (nav === 'requests') { ui.user.page = 'requests'; renderUser(); }
-  else toast('user', 'Section non incluse dans la maquette', 'warning');
+  else toast('user', 'Section not included in the mockup', 'warning');
 });
 
 $('#admin-sidebar').addEventListener('click', e => {
@@ -2674,10 +2670,10 @@ $('#admin-sidebar').addEventListener('click', e => {
   const nav = item.dataset.nav;
   if (nav === 'inbox') { ui.admin.page = 'inbox'; renderAdmin(); }
   else if (nav === 'activity') { ui.admin.page = 'activity'; renderAdmin(); }
-  else toast('admin', 'Section non incluse dans la maquette', 'warning');
+  else toast('admin', 'Section not included in the mockup', 'warning');
 });
 
-/* --- Actions du volet utilisateur (délégation) --- */
+/* --- User pane actions (delegation) --- */
 $('#user-main').addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
@@ -2694,7 +2690,7 @@ $('#user-main').addEventListener('click', e => {
     case 'filter-owner': ui.user.filterOwner = arg; renderUser(); break;
     case 'open-wizard': ui.wizard = newWizard(arg || null); ui.user.page = 'wizard'; renderUser(); break;
     case 'open-image-wizard': ui.wizard = newImageWizard(arg); ui.user.page = 'wizard'; renderUser(); break;
-    case 'not-included': toast('user', 'Fonctionnalité non incluse dans la maquette', 'warning'); break;
+    case 'not-included': toast('user', 'Feature not included in the mockup', 'warning'); break;
 
     /* Assistant image (harbor-pull / diode-push) */
     case 'img-wiz-prev':
@@ -2757,8 +2753,8 @@ $('#user-main').addEventListener('click', e => {
   }
 });
 
-/* Re-rend le volet utilisateur puis redonne le focus (et le curseur) au champ saisi.
-   Utilisé pour les champs dont la modification change l'affichage (prix, lignes VM…). */
+/* Re-renders the user pane then restores focus (and cursor) to the edited field.
+   Used for fields whose modification changes the display (prices, VM rows…). */
 function rerenderKeepFocus(selector, srcInput) {
   const pos = srcInput.selectionStart;
   renderUser();
@@ -2825,7 +2821,7 @@ $('#user-main').addEventListener('input', e => {
       break;
     }
     case 'catalog-search': {
-      // Re-rendu du tableau filtré + restauration du focus dans le champ
+      // Re-render filtered table + restore focus in the field
       ui.user.search = e.target.value;
       const pos = e.target.selectionStart;
       renderUser();
@@ -2844,7 +2840,7 @@ $('#user-main').addEventListener('input', e => {
   }
 });
 
-/* --- Actions du volet administrateur --- */
+/* --- Administrator pane actions --- */
 $('#admin-main').addEventListener('click', e => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
@@ -2855,13 +2851,13 @@ $('#admin-main').addEventListener('click', e => {
     case 'admin-open': ui.admin.page = 'request'; ui.admin.request = arg; renderAdmin(); break;
     case 'admin-approve': approveRequest(arg); break;
     case 'admin-reject': rejectRequest(arg); break;
-    case 'not-included': toast('admin', 'Fonctionnalité non incluse dans la maquette', 'warning'); break;
+    case 'not-included': toast('admin', 'Feature not included in the mockup', 'warning'); break;
   }
 });
 
-/* --- Réinitialisation de la démo --- */
+/* --- Demo reset --- */
 $('#btn-reset').addEventListener('click', () => {
-  if (!confirm('Réinitialiser la démonstration ? Toutes les demandes créées seront effacées.')) return;
+  if (!confirm('Reset the demo? All created requests will be deleted.')) return;
   localStorage.removeItem(STORAGE_KEY);
   location.reload();
 });
@@ -2874,7 +2870,7 @@ renderUser();
 renderAdmin();
 renderBadges();
 
-/* Si la page a été rechargée pendant un provisionnement, on le reprend */
+/* If the page was reloaded during provisioning, resume it */
 state.requests
   .filter(r => r.status === 'provisioning' || r.status === 'approved')
   .forEach(r => setTimeout(() => startProvisioning(r.id), 800));
