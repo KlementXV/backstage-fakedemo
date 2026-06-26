@@ -147,8 +147,6 @@ const RESOURCE_DEFS = {
                 prices: { S: 60, M: 190, L: 340, XL: 620 },
                 planLabels: { S: 'Rabbit-Dev', M: 'Rabbit-M', L: 'Rabbit-L', XL: 'Rabbit-XL' },
                 desc: 'Managed message broker. 3-node cluster: rate ×2.5.' },
-  serverless: { icon: '⚡', label: 'Serverless Containers',   base: 30,   sized: false,
-                desc: 'Serverless containers — €0.10/h/vCPU, €0.025/GiB/h. Min. €30/service/month.' },
   wiki:       { icon: '📖', label: 'Wiki',       base: 120,  sized: false,
                 desc: 'Managed collaborative wiki (application, database and storage included).' },
 };
@@ -174,7 +172,6 @@ const RES_TPL_META = {
   mongo:      { type: 'Data',           category: 'data',  tags: ['mongodb', 'database', 'nosql'],         usageCount: 22 },
   redis:      { type: 'Infrastructure', category: 'infra', tags: ['redis', 'cache', 'in-memory'],          usageCount: 33 },
   rabbitmq:   { type: 'Infrastructure', category: 'infra', tags: ['rabbitmq', 'messaging', 'amqp'],        usageCount: 19 },
-  serverless: { type: 'Application',    category: 'app',   tags: ['serverless', 'containers', 'autoscale'],usageCount: 14, isNew: true },
   wiki:       { type: 'Documentation',  category: 'docs',  tags: ['wiki', 'documentation', 'mkdocs'],      usageCount: 11 },
 };
 
@@ -661,7 +658,6 @@ function computeCost(req) {
     const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
     lines.push([`RabbitMQ — ${sizePlan(def, sz)}`, sizePrice(def, sz, specFor(req, 'rabbitmq'))]);
   }
-  if (r.serverless) lines.push(['Serverless Containers (min.)', RESOURCE_DEFS.serverless.base]);
   if (r.wiki)       lines.push(['Wiki as a Service', RESOURCE_DEFS.wiki.base]);
   const total = Math.round(lines.reduce((s, l) => s + l[1], 0));
   return { lines, total };
@@ -683,7 +679,6 @@ function resourceSummary(req) {
   if (r.mongo)      out.push('MongoDB');
   if (r.redis)      out.push('Redis');
   if (r.rabbitmq)   out.push('RabbitMQ');
-  if (r.serverless) out.push('Serverless');
   if (r.wiki)       out.push(`Wiki${r.wikiName ? ` (${r.wikiName})` : ''}`);
   return out;
 }
@@ -1191,8 +1186,6 @@ function newWizard(resourceKey) {
         mongo:           resourceKey === 'mongo',
         redis:           resourceKey === 'redis',
         rabbitmq:        resourceKey === 'rabbitmq',
-        serverless:      resourceKey === 'serverless',
-        serverlessImage: '',
         wiki:            resourceKey === 'wiki',
         wikiName:        '',
       },
@@ -1797,20 +1790,6 @@ function wizStep4() {
           </div>
         </div>`;
 
-      case 'serverless':
-        return `<div class="dim-card">
-          <div class="dim-card__head">
-            <span class="dim-card__title">${def.icon} ${def.label}</span>
-            <span class="dim-card__price">${euro(def.base)}<small>/mois min.</small></span>
-          </div>
-          <div class="dim-card__body">
-            <div class="dim-field-row">
-              <label>Image conteneur</label>
-              <input type="text" class="dim-input" value="${esc(r.serverlessImage)}" placeholder="harbor.exemple.fr/projet/image:tag" data-input="wiz-serverlessimage">
-            </div>
-          </div>
-        </div>`;
-
       case 'wiki':
         return `<div class="dim-card">
           <div class="dim-card__head">
@@ -2239,7 +2218,6 @@ function adminRequestPage() {
     const def = RESOURCE_DEFS.rabbitmq; const sz = getSize('rabbitmq');
     resRows.push([`🐰 RabbitMQ — ${sizePlan(def, sz)}`, '1', euro(sizePrice(def, sz, specFor(r, 'rabbitmq')))]);
   }
-  if (res.serverless) resRows.push(['⚡ Serverless Containers', esc(res.serverlessImage || '1 service'), euro(RESOURCE_DEFS.serverless.base)]);
   if (res.wiki)       resRows.push(['📖 Wiki as a Service', esc(res.wikiName || '—'), euro(RESOURCE_DEFS.wiki.base)]);
 
   return `
@@ -2595,8 +2573,6 @@ function createEntitiesFromRequest(r) {
         description: `Managed Redis cache for project ${r.name}.` }); count++; }
   if (r.resources.rabbitmq) { add({ name: `${r.name}-rabbitmq`, kind: 'Resource', type: 'message-broker', tags: ['rabbitmq', sizePlan(RESOURCE_DEFS.rabbitmq, r.size).toLowerCase()],
         description: `Managed RabbitMQ broker for project ${r.name}.` }); count++; }
-  if (r.resources.serverless) { add({ name: `${r.name}-serverless`, kind: 'Resource', type: 'serverless', tags: ['serverless', 'containers'],
-        description: `Namespace serverless Containers du projet ${r.name}${r.resources.serverlessImage ? ` (image ${r.resources.serverlessImage})` : ''}.` }); count++; }
   if (r.resources.wiki) { add({ name: `${r.name}-wiki`, kind: 'Resource', type: 'wiki', tags: ['wiki'],
         description: `Wiki as a Service « ${r.resources.wikiName || r.name + '-wiki'} » du projet ${r.name}.` }); count++; }
   return count;
@@ -2794,7 +2770,6 @@ $('#user-main').addEventListener('input', e => {
     case 'wiz-hypervisor': if (w) { w.data.hypervisor = e.target.value; renderUser(); } break;
     case 'wiz-desc': if (w) w.data.description = e.target.value; break;
     case 'wiz-ranchername':    if (w) w.data.resources.rancherName = e.target.value; break;
-    case 'wiz-serverlessimage': if (w) w.data.resources.serverlessImage = e.target.value; break;
     case 'wiz-wikiname':       if (w) w.data.resources.wikiName = e.target.value; break;
     case 'wiz-vmcount': {
       if (!w) break;
