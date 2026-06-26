@@ -147,6 +147,8 @@ const RESOURCE_DEFS = {
                 prices: { S: 60, M: 190, L: 340, XL: 620 },
                 planLabels: { S: 'Rabbit-Dev', M: 'Rabbit-M', L: 'Rabbit-L', XL: 'Rabbit-XL' },
                 desc: 'Managed message broker. 3-node cluster: rate ×2.5.' },
+  serverless: { icon: '⚡', label: 'Serverless Containers',   base: 30,   sized: false,
+                desc: 'Serverless containers — €0.10/h/vCPU, €0.025/GiB/h. Min. €30/service/month.' },
   wiki:       { icon: '📖', label: 'Wiki',       base: 120,  sized: false,
                 desc: 'Managed collaborative wiki (application, database and storage included).' },
 };
