@@ -1,5 +1,5 @@
 /* ============================================================
-   Helios — maquette de portail développeur inspirée de Backstage
+   Hybrid Demand Cloud — maquette de portail développeur inspirée de Backstage
    ------------------------------------------------------------
    Organisation du fichier :
      1. Variables & reset
@@ -26,7 +26,7 @@
   --bs-link: #1f5493;
   --bs-sidebar-bg: #171717;
   --bs-sidebar-fg: #b5b5b5;
-  --bs-sidebar-accent: #9bf0e1;
+  --bs-sidebar-accent: #ff4d4d;
   --bs-page-bg: #f2f4f7;
   --bs-card-bg: #ffffff;
   --bs-border: #e0e0e0;
@@ -77,11 +77,11 @@ a:hover { text-decoration: underline; }
   z-index: 50;
 }
 .demo-bar__brand { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
-.demo-bar__brand strong { color: #9bf0e1; font-size: 13px; }
+.demo-bar__brand strong { color: #ff6868; font-size: 13px; }
 .demo-bar__dot {
   width: 9px; height: 9px; border-radius: 50%;
-  background: #9bf0e1;
-  box-shadow: 0 0 8px #9bf0e1;
+  background: #d90012;
+  box-shadow: 0 0 8px rgba(255,77,77,.7);
 }
 .demo-bar__scenario { flex: 1; text-align: center; color: #8a8a8a; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .demo-bar__scenario span { color: #c9c9c9; }
@@ -95,7 +95,7 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
   white-space: nowrap;
 }
-.demo-bar__reset:hover { border-color: #9bf0e1; color: #9bf0e1; }
+.demo-bar__reset:hover { border-color: #ff4d4d; color: #ff6868; }
 
 .split {
   flex: 1;
@@ -153,10 +153,24 @@ a:hover { text-decoration: underline; }
   gap: 10px;
   padding: 2px 18px 14px;
 }
-.sidebar__logo-mark { width: 26px; height: 26px; flex: 0 0 26px; }
+.sidebar__logo-mark { width: 46px; height: 32px; flex: 0 0 46px; }
+.cloud-logo {
+  display: block;
+  padding: 3px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}
+.cloud-logo__red--top { fill: #8b0000; }
+.cloud-logo__red--right { fill: #6a0000; opacity: .92; }
+.cloud-logo__red--bottom-left { fill: #4a0000; opacity: .85; }
+.cloud-logo__red--center { fill: #3a0000; opacity: .78; }
+.cloud-logo__black { fill: #0a0a0a; }
 .sidebar__logo-text {
+  min-width: 0;
   color: #fff;
-  font-size: 17px;
+  font-size: 13px;
+  line-height: 1.15;
   font-weight: 700;
   letter-spacing: .4px;
 }
@@ -499,6 +513,8 @@ table.bs-table {
 }
 .chip--outline { background: transparent; border: 1px solid #c4c4c4; }
 .chip--new { background: #d7f5e2; color: #11632d; font-weight: 700; }
+.chip--warning { background: #fdf3e1; color: #8a5b00; border: 1px solid #f6e0b0; }
+.chip--danger { background: #fdeaec; color: #8f1622; border: 1px solid #f5c6cc; }
 
 /* Badge de statut : pastille + libellé */
 .status {
@@ -1329,6 +1345,89 @@ table.bs-table {
   white-space: nowrap;
 }
 .dim-vm-item__sizing { flex: 1; }
+
+/* VM lease timeout */
+.lease-panel {
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border: 1px solid #f0d28f;
+  border-radius: var(--bs-radius);
+  background: #fff9ed;
+}
+.lease-panel--disabled {
+  border-color: var(--bs-border);
+  background: #f7f9fc;
+}
+.lease-panel__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.lease-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bs-text);
+  cursor: pointer;
+}
+.lease-toggle input { accent-color: var(--bs-primary); }
+.lease-duration {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--bs-text-secondary);
+}
+.lease-duration label { font-weight: 600; white-space: nowrap; }
+.lease-duration input {
+  width: 76px;
+  padding: 5px 8px;
+  border: 1px solid #bdbdbd;
+  border-radius: var(--bs-radius);
+  font-family: inherit;
+  font-size: 13px;
+}
+.lease-duration input:focus {
+  outline: none;
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 2px rgba(31,84,147,.15);
+}
+.lease-panel__body {
+  margin-top: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.lease-reminders {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--bs-text-secondary);
+}
+.lease-reminders > span:first-child {
+  font-weight: 700;
+  color: var(--bs-text);
+  margin-right: 3px;
+}
+.lease-reminder-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 38px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: #fdf3e1;
+  border: 1px solid #f0d28f;
+  color: #8a5b00;
+  font-size: 11px;
+  font-weight: 700;
+}
 
 /* Custom spec editor */
 .dim-custom-editor {

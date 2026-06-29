@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Helios — Internal Developer Portal (demo)</title>
+  <title>Hybrid Demand Cloud — Internal Developer Portal (demo)</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -14,39 +14,30 @@
   <header class="demo-bar">
     <div class="demo-bar__brand">
       <span class="demo-bar__dot"></span>
-      <strong>Helios</strong>&nbsp;· Internal Developer Portal — demo mockup
+      <strong>Hybrid Demand Cloud</strong>&nbsp;· demo mockup
     </div>
     <div class="demo-bar__scenario">
-      Scenario&nbsp;: <span>1. Catalog</span> → <span>2. Create a project</span> → <span>3. Validation</span> → <span>4. Provisioning</span> → <span>5. Available resources</span>
+      Scenario: <span>1. Catalog</span> → <span>2. Create a project</span> → <span>3. Approval</span> → <span>4. Provisioning</span> → <span>5. Available resources</span>
     </div>
-    <button class="demo-bar__reset" id="btn-reset" title="Clears local state and restarts the demo">⟲ Reset demo</button>
+    <button class="demo-bar__reset" id="btn-reset" title="Clear local state and restart demo">⟲ Reset demo</button>
   </header>
 
   <!-- ============================================================
-       Split screen: user (left) / administrator (right)
+       Split screen: user (left) / admin (right)
        ============================================================ -->
   <div class="split">
 
     <!-- ======================= USER VIEW ======================= -->
     <section class="pane pane--user">
       <div class="pane__ribbon pane__ribbon--user">
-        <span class="pane__ribbon-icon">👩‍💻</span> User interface — Marie Lambert (team-web)
+        <span class="pane__ribbon-icon">👩‍💻</span> User interface — Mary Lambert (web-team)
       </div>
 
       <div class="app">
-        <!-- Side navigation, faithful to the Backstage sidebar -->
+        <!-- Side navigation, true to Backstage sidebar -->
         <nav class="sidebar" id="user-sidebar">
           <div class="sidebar__logo">
-            <svg viewBox="0 0 24 24" class="sidebar__logo-mark" aria-hidden="true">
-              <circle cx="12" cy="12" r="5" fill="#9bf0e1"/>
-              <g stroke="#9bf0e1" stroke-width="2" stroke-linecap="round">
-                <line x1="12" y1="1.5" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22.5"/>
-                <line x1="1.5" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22.5" y2="12"/>
-                <line x1="4.6" y1="4.6" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.4" y2="19.4"/>
-                <line x1="4.6" y1="19.4" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.4" y2="4.6"/>
-              </g>
-            </svg>
-            <span class="sidebar__logo-text">Helios</span>
+            <span class="sidebar__logo-text">Hybrid Demand Cloud</span>
           </div>
 
           <div class="sidebar__search">
@@ -64,15 +55,15 @@
           </a>
           <a class="sidebar__item" data-nav="docs">
             <svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
-            <span>Wiki</span>
+            <span>Docs</span>
           </a>
           <a class="sidebar__item" data-nav="create">
             <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm5 11h-4v4h-2v-4H7v-2h4V7h2v4h4v2z"/></svg>
-            <span>Create…</span>
+            <span>Create...</span>
           </a>
           <a class="sidebar__item" data-nav="requests">
             <svg viewBox="0 0 24 24"><path d="M19 3h-4.18C14.4 1.84 13.3 1 12 1c-1.3 0-2.4.84-2.82 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zm2 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
-            <span>My Requests</span>
+            <span>My requests</span>
             <span class="sidebar__badge" id="user-badge-requests" hidden>0</span>
           </a>
 
@@ -85,18 +76,18 @@
           </a>
           <div class="sidebar__user">
             <span class="avatar avatar--user">ML</span>
-            <span class="sidebar__user-name">Marie L.</span>
+            <span class="sidebar__user-name">Mary L.</span>
           </div>
         </nav>
 
-        <!-- Main area, dynamically rendered by script.js -->
+        <!-- Main area, rendered dynamically by script.js -->
         <main class="main" id="user-main" aria-live="polite"></main>
       </div>
 
       <div class="toasts" id="user-toasts"></div>
     </section>
 
-    <!-- Admin teaser strip: visible until first request is submitted -->
+    <!-- Admin teaser strip: visible until a request has been submitted -->
     <div class="admin-teaser-strip" id="admin-teaser-strip">
       <div class="admin-teaser-strip__inner">
         <span class="admin-teaser-strip__icon">🛡️</span>
@@ -105,25 +96,16 @@
       </div>
     </div>
 
-    <!-- ======================= ADMINISTRATOR VIEW ======================= -->
+    <!-- ======================= ADMIN VIEW ======================= -->
     <section class="pane pane--admin">
       <div class="pane__ribbon pane__ribbon--admin">
-        <span class="pane__ribbon-icon">🛡️</span> Administrator interface — Antoine Durand (team-platform)
+        <span class="pane__ribbon-icon">🛡️</span> Admin interface — Anthony Durand (platform-team)
       </div>
 
       <div class="app">
         <nav class="sidebar" id="admin-sidebar">
           <div class="sidebar__logo">
-            <svg viewBox="0 0 24 24" class="sidebar__logo-mark" aria-hidden="true">
-              <circle cx="12" cy="12" r="5" fill="#9bf0e1"/>
-              <g stroke="#9bf0e1" stroke-width="2" stroke-linecap="round">
-                <line x1="12" y1="1.5" x2="12" y2="4.5"/><line x1="12" y1="19.5" x2="12" y2="22.5"/>
-                <line x1="1.5" y1="12" x2="4.5" y2="12"/><line x1="19.5" y1="12" x2="22.5" y2="12"/>
-                <line x1="4.6" y1="4.6" x2="6.7" y2="6.7"/><line x1="17.3" y1="17.3" x2="19.4" y2="19.4"/>
-                <line x1="4.6" y1="19.4" x2="6.7" y2="17.3"/><line x1="17.3" y1="6.7" x2="19.4" y2="4.6"/>
-              </g>
-            </svg>
-            <span class="sidebar__logo-text">Helios <em>Ops</em></span>
+            <span class="sidebar__logo-text">Hybrid Demand Cloud <em>Ops</em></span>
           </div>
 
           <div class="sidebar__search">
@@ -133,12 +115,12 @@
 
           <a class="sidebar__item is-active" data-nav="inbox">
             <svg viewBox="0 0 24 24"><path d="M19 3H4.99c-1.11 0-1.98.89-1.98 2L3 19c0 1.1.88 2 1.99 2H19c1.1 0 2-.9 2-2V5c0-1.11-.9-2-2-2zm0 12h-4c0 1.66-1.35 3-3 3s-3-1.34-3-3H4.99V5H19v10z"/></svg>
-            <span>Validations</span>
+            <span>Approvals</span>
             <span class="sidebar__badge" id="admin-badge-pending" hidden>0</span>
           </a>
           <a class="sidebar__item" data-nav="activity">
             <svg viewBox="0 0 24 24"><path d="M13 3c-4.97 0-9 4.03-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42C8.27 19.99 10.51 21 13 21c4.97 0 9-4.03 9-9s-4.03-9-9-9zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
-            <span>Activity Log</span>
+            <span>Activity log</span>
           </a>
           <a class="sidebar__item" data-nav="governance">
             <svg viewBox="0 0 24 24"><path d="M12 1 3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"/></svg>
@@ -158,7 +140,7 @@
           </a>
           <div class="sidebar__user">
             <span class="avatar avatar--admin">AD</span>
-            <span class="sidebar__user-name">Antoine D.</span>
+            <span class="sidebar__user-name">Anthony D.</span>
           </div>
         </nav>
 

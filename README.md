@@ -1,56 +1,57 @@
-# Helios — maquette de portail développeur inspirée de Backstage
+# Hybrid Demand Cloud — Backstage-inspired internal developer portal mockup
 
-Maquette de démonstration **100 % statique** (HTML / CSS / JavaScript) reproduisant
-l'expérience UI/UX de [Backstage](https://backstage.io) (portail développeur open
-source initié par Spotify), sous une identité visuelle personnalisée « Helios ».
+Fully static demo mockup (HTML / CSS / JavaScript) recreating the UI/UX of
+[Backstage](https://backstage.io), the open source developer portal initiated by
+Spotify, under a custom "Hybrid Demand Cloud" visual identity.
 
-> ⚠️ Ceci est une **fausse implémentation à but démonstratif** : aucun backend,
-> aucun appel réel à Rancher, Harbor, VMware, PostgreSQL ou MongoDB. Toutes les
-> données sont simulées localement en JavaScript et persistées dans `localStorage`.
-> Les logos et marques de Spotify/Backstage ne sont pas utilisés.
+> This is a **fake implementation for demo purposes**: there is no backend and no
+> real call to Rancher, Harbor, VMware, PostgreSQL or MongoDB. All data is
+> simulated locally in JavaScript and persisted in `localStorage`.
+> Spotify/Backstage logos and trademarks are not used.
 
-## Lancement
+## Run
 
-Ouvrir simplement `index.html` dans un navigateur. Aucun serveur, aucune
-dépendance, aucune compilation.
+Open `index.html` directly in a browser. There is no server, dependency or build
+step.
 
-Le bouton **« ⟲ Réinitialiser la démo »** (barre du haut) efface l'état local et
-ramène la démonstration à son point de départ.
+The **"Reset demo"** button in the top bar clears local state and returns the
+demo to its starting point.
 
-## Ce que montre la démo
+## What The Demo Shows
 
-L'écran est scindé en deux volets visibles simultanément :
+The screen is split into two panes visible at the same time:
 
-- **Gauche — interface utilisateur** : Software Catalog (filtres, tableau
-  d'entités, pages de détail), Software Templates et assistant de création en
-  6 étapes (informations, environnement, ressources, dimensionnement avec
-  estimation de coût mensuel, résumé, envoi), suivi des demandes.
-- **Droite — interface administrateur** : file de validation avec filtres,
-  détail d'une demande, approbation/refus avec commentaire, provisionnement
-  simulé étape par étape (stepper, barre de progression, journal d'exécution),
-  journal d'activité.
+- **Left — user interface**: Software Catalog with filters, entity table and
+  detail pages, Software Templates, a six-step creation wizard (information,
+  environment, resources, sizing with monthly cost estimate and VM lease
+  timeout, summary and submission), and request tracking.
+- **Right — admin interface**: approval queue with filters, request detail,
+  approve/reject flow with comments, simulated step-by-step provisioning
+  (stepper, progress bar and execution log), and activity log.
 
-### Scénario de présentation
+### Presentation Scenario
 
-1. L'utilisateur parcourt le catalogue puis ouvre **Créer…**
-2. Il choisit le template **« Provisionnement de projet plateforme »**
-3. Il complète le formulaire multi-étapes et envoie sa demande
-4. La demande apparaît immédiatement dans le volet administrateur
-5. L'administrateur l'ouvre, la commente et l'**approuve**
-6. Le provisionnement se déroule automatiquement (Rancher → Harbor → VM →
-   bases de données → accès → finalisation)
-7. Les nouvelles ressources apparaissent dans le catalogue utilisateur avec
-   le badge « Nouveau » et la demande passe au statut **Disponible**
+1. The user browses the catalog and opens **Create...**
+2. They choose the **Bundle** template
+3. They complete the multi-step form and submit the request
+4. The request immediately appears in the admin pane
+5. The admin opens it, comments on it and **approves** it
+6. Provisioning runs automatically (Rancher → Harbor → VM → databases → access → finalization)
+7. VM requests can include a time-limited lease: the requester defines the
+   duration, Hybrid Demand Cloud schedules auto-delete, and reminders are planned at D-45,
+   D-30, D-15 and D-1
+8. Data services, Redis, RabbitMQ and **Push to diode network** requests are
+   auto-approved by policy and start provisioning without an admin decision
+9. New resources appear in the user catalog with the **New** badge and the request moves to **Available**
 
-## Structure du code
+## Code Structure
 
-| Fichier      | Rôle                                                            |
+| File         | Role                                                            |
 |--------------|-----------------------------------------------------------------|
-| `index.html` | Coquille de la page : barre de démo, deux volets, sidebars      |
-| `styles.css` | Tout le design system « façon Backstage » (variables en tête)   |
-| `script.js`  | Données simulées, état, rendu des vues, provisionnement simulé  |
+| `index.html` | Page shell: demo bar, two panes, sidebars                       |
+| `styles.css` | Backstage-style design system (variables at the top)            |
+| `script.js`  | Simulated data, state, view rendering and provisioning workflow  |
 
-Les points d'extension les plus utiles sont en tête de `script.js` :
-équipes (`TEAMS`), environnements (`ENVIRONMENTS`), tailles et coûts (`SIZES`,
-`RESOURCE_DEFS`), templates (`TEMPLATES`) et étapes de provisionnement
-(`PROV_STEPS`).
+The most useful extension points are at the top of `script.js`: teams (`TEAMS`),
+environments (`ENVIRONMENTS`), sizes and costs (`SIZES`, `RESOURCE_DEFS`),
+templates (`TEMPLATES`) and provisioning steps (`PROV_STEPS`).
